@@ -8,16 +8,16 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 pub struct Node {
-    game_state: GameState,
-    value: Vec<f32>,
-    visits: u32,
-    children: Vec<Arc<Mutex<Node>>>,
-    moves: Vec<Option<Direction>>,
-    parent: Weak<Mutex<Node>>,
+    pub game_state: GameState,
+    pub value: Vec<f32>,
+    pub visits: u32,
+    pub children: Vec<Arc<Mutex<Node>>>,
+    pub moves: Vec<Direction>, // Moves made to reach this node
+    pub parent: Weak<Mutex<Node>>,
 }
 
 pub struct MCTS {
-    root: Arc<Mutex<Node>>,
+    pub root: Arc<Mutex<Node>>, // Made public to access in tests
     exploration_constant: f32,
 }
 
@@ -30,7 +30,7 @@ impl MCTS {
                 value: vec![0.0; num_snakes],
                 visits: 0,
                 children: Vec::new(),
-                moves: vec![None; num_snakes],
+                moves: Vec::new(), // Root node has no moves
                 parent: Weak::new(),
             })),
             exploration_constant: 1.414,
@@ -70,7 +70,7 @@ impl MCTS {
         let mut current = Arc::clone(node);
         loop {
             let expand_result = {
-                let node = current.lock().unwrap();
+                let node = current.lock().unwrap_or_else(|e| e.into_inner());
                 if node.children.is_empty() {
                     if node.visits == 0 {
                         true
@@ -100,44 +100,41 @@ impl MCTS {
     }
 
     fn expand(node: &Arc<Mutex<Node>>) {
-        let mut node_lock = node.lock().unwrap();
+        let mut node_lock = node.lock().unwrap_or_else(|e| e.into_inner()); // Declare as mutable
         let num_snakes = node_lock.game_state.snakes.len();
+
+        // Collect safe moves for each snake
+        let mut snakes_safe_moves = Vec::new();
         for snake_index in 0..num_snakes {
             let safe_moves = node_lock.game_state.get_safe_moves(snake_index);
-            for &move_direction in &safe_moves {
-                let mut new_moves = node_lock.moves.clone();
-                new_moves[snake_index] = Some(move_direction);
-
-                if new_moves.iter().all(|m| m.is_some()) {
-                    let mut new_state = node_lock.game_state.clone();
-                    for (i, &m) in new_moves.iter().enumerate() {
-                        if let Some(direction) = m {
-                            new_state.move_snake(i, direction);
-                        }
-                    }
-                    new_state.resolve_collisions();
-
-                    let new_node = Node {
-                        game_state: new_state,
-                        value: vec![0.0; num_snakes],
-                        visits: 0,
-                        children: Vec::new(),
-                        moves: new_moves,
-                        parent: Arc::downgrade(node),
-                    };
-                    node_lock.children.push(Arc::new(Mutex::new(new_node)));
-                } else {
-                    let new_node = Node {
-                        game_state: node_lock.game_state.clone(),
-                        value: vec![0.0; num_snakes],
-                        visits: 0,
-                        children: Vec::new(),
-                        moves: new_moves,
-                        parent: Arc::downgrade(node),
-                    };
-                    node_lock.children.push(Arc::new(Mutex::new(new_node)));
-                }
+            // If a snake has no safe moves, it will die
+            if safe_moves.is_empty() {
+                // Optionally, you can assign a default move or handle it accordingly
+                snakes_safe_moves.push(vec![Direction::Up]); // Assign a default move
+            } else {
+                snakes_safe_moves.push(safe_moves);
             }
+        }
+
+        // Generate all combinations of moves
+        let move_combinations = cartesian_product(&snakes_safe_moves);
+
+        for moves in move_combinations {
+            let mut new_state = node_lock.game_state.clone();
+            for (i, &direction) in moves.iter().enumerate() {
+                new_state.move_snake(i, direction);
+            }
+            new_state.resolve_collisions();
+
+            let new_node = Node {
+                game_state: new_state,
+                value: vec![0.0; num_snakes],
+                visits: 0,
+                children: Vec::new(),
+                moves: moves.clone(),
+                parent: Arc::downgrade(node),
+            };
+            node_lock.children.push(Arc::new(Mutex::new(new_node)));
         }
     }
 
@@ -145,7 +142,7 @@ impl MCTS {
         node: &Arc<Mutex<Node>>,
         exploration_constant: f32,
     ) -> Option<Arc<Mutex<Node>>> {
-        let node_lock = node.lock().unwrap();
+        let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
         if node_lock.children.is_empty() {
             return None;
         }
@@ -153,8 +150,8 @@ impl MCTS {
             .children
             .iter()
             .max_by(|a, b| {
-                let a_lock = a.lock().unwrap();
-                let b_lock = b.lock().unwrap();
+                let a_lock = a.lock().unwrap_or_else(|e| e.into_inner());
+                let b_lock = b.lock().unwrap_or_else(|e| e.into_inner());
                 let a_ucb = Self::ucb_value(&a_lock, node_lock.visits as f32, exploration_constant);
                 let b_ucb = Self::ucb_value(&b_lock, node_lock.visits as f32, exploration_constant);
                 a_ucb
@@ -177,11 +174,13 @@ impl MCTS {
     fn back_propagate(node: &Arc<Mutex<Node>>) {
         let mut current = Arc::clone(node);
         loop {
-            let mut node = current.lock().unwrap();
+            let mut node = current.lock().unwrap_or_else(|e| e.into_inner()); // Declare as mutable
             node.visits += 1;
             let control_percentages = heuristic::calculate_control_percentages(&node.game_state);
             for (i, &percentage) in control_percentages.iter().enumerate() {
-                node.value[i] += percentage;
+                if i < node.value.len() {
+                    node.value[i] += percentage;
+                }
             }
 
             match node.parent.upgrade() {
@@ -199,34 +198,40 @@ impl MCTS {
     }
 
     pub fn get_best_moves(&self) -> Vec<Direction> {
-        let root = self.root.lock().unwrap();
-        root.children
-            .iter()
-            .max_by_key(|child| child.lock().unwrap().visits)
-            .map(|child| {
-                child
-                    .lock()
-                    .unwrap()
-                    .moves
-                    .iter()
-                    .filter_map(|&m| m)
-                    .collect()
-            })
-            .unwrap_or_else(|| {
-                root.game_state
-                    .snakes
-                    .iter()
-                    .map(|_| {
-                        *[
-                            Direction::Up,
-                            Direction::Down,
-                            Direction::Left,
-                            Direction::Right,
-                        ]
-                        .choose(&mut thread_rng())
-                        .unwrap()
-                    })
-                    .collect()
-            })
+        let root = self.root.lock().unwrap_or_else(|e| e.into_inner());
+        let num_snakes = root.game_state.snakes.len();
+
+        let mut best_moves = vec![Direction::Up; num_snakes]; // Default moves
+
+        if !root.children.is_empty() {
+            let best_child = root
+                .children
+                .iter()
+                .max_by_key(|child| child.lock().unwrap_or_else(|e| e.into_inner()).visits);
+
+            if let Some(child) = best_child {
+                let child_lock = child.lock().unwrap_or_else(|e| e.into_inner());
+                best_moves = child_lock.moves.clone();
+            }
+        }
+
+        best_moves
     }
+}
+
+// Helper function to compute the Cartesian product of a list of lists
+fn cartesian_product<T: Clone>(lists: &[Vec<T>]) -> Vec<Vec<T>> {
+    let mut result: Vec<Vec<T>> = vec![vec![]];
+    for pool in lists {
+        let mut temp = Vec::new();
+        for x in &result {
+            for y in pool {
+                let mut x = x.clone();
+                x.push(y.clone());
+                temp.push(x);
+            }
+        }
+        result = temp;
+    }
+    result
 }

@@ -1,9 +1,10 @@
 // File: tests/mcts_test.rs
 
 use battlesnake::game_state::{Direction, GameState};
-use battlesnake::search::MCTS;
+use battlesnake::search::{Node, MCTS};
 use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
 use serde_json::json;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 struct TestCase {
@@ -44,7 +45,7 @@ fn create_test_cases() -> Vec<TestCase> {
                 "snakes": [
                     {
                         "id": "snake1",
-                        "body": [4, 5, 6],
+                        "body": [0, 1,   2],
                         "health": 100
                     }
                 ],
@@ -99,6 +100,23 @@ fn test_mcts_move_selection() {
         let num_threads = 4; // Adjust as needed
 
         mcts.run(duration, num_threads);
+
+        // Find the longest path
+        let root = mcts.root.clone();
+        let longest_path = find_longest_path(&root);
+
+        println!("Longest path in the MCTS tree (from root to leaf):");
+        for (i, node) in longest_path.iter().enumerate() {
+            let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
+            println!("Step {}:", i);
+            println!("{}", visualize_game_state(&node_lock.game_state));
+            println!("Moves: {:?}", node_lock.moves);
+            println!("Visits: {}", node_lock.visits);
+            println!("Value: {:?}", node_lock.value);
+            println!("---");
+        }
+
+        // Get the best moves from the root
         let best_moves = mcts.get_best_moves();
 
         println!("Calculated best moves: {:?}", best_moves);
@@ -111,8 +129,7 @@ fn test_mcts_move_selection() {
             case.name
         );
 
-        // Note: MCTS is stochastic, so we can't always expect exact matches.
-        // Instead, we'll check if the moves are valid and print a warning if they don't match exactly.
+        // Since MCTS is stochastic, we'll check if the moves are valid
         let all_moves_valid = best_moves
             .iter()
             .enumerate()
@@ -124,10 +141,27 @@ fn test_mcts_move_selection() {
             case.name
         );
 
-        if best_moves != case.expected_moves {
-            println!("Warning: Moves don't exactly match expected moves. This may be due to the stochastic nature of MCTS.");
-        }
-
         println!("\n");
     }
+}
+
+// Function to find the longest path from the root to a leaf node
+fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
+    let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
+    if node_lock.children.is_empty() {
+        return vec![Arc::clone(node)];
+    }
+
+    let mut max_path = Vec::new();
+
+    for child in &node_lock.children {
+        let mut path = find_longest_path(child);
+        if path.len() > max_path.len() {
+            max_path = path;
+        }
+    }
+
+    let mut full_path = vec![Arc::clone(node)];
+    full_path.extend(max_path);
+    full_path
 }
