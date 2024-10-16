@@ -49,14 +49,11 @@ pub fn calculate_control_percentages(game_state: &GameState) -> Vec<f32> {
     let control = calculate_snake_control(game_state);
     let board_size = game_state.width * game_state.height;
     let mut counts = vec![0; game_state.snakes.len()];
-    let mut uncontrolled = 0;
 
     for &c in &control {
         if c >= 0 {
             counts[c as usize] += 1;
-        } else {
-            uncontrolled += 1;
-        }
+        } 
     }
 
     counts.iter()

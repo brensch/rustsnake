@@ -1,6 +1,5 @@
 // File: tests/heuristic_test.rs
 
-use battlesnake::game_state::GameState;
 use battlesnake::heuristic::{calculate_snake_control, calculate_control_percentages};
 use battlesnake::visualizer::json_to_game_state;
 use serde_json::json;
