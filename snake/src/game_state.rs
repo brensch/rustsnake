@@ -101,28 +101,28 @@ impl GameState {
 
     pub fn resolve_collisions(&mut self) {
         let mut eaten_food = Vec::new();
-        let mut dead_snakes = Vec::new();
+        let mut dead_snakes_flags = vec![false; self.snakes.len()];
 
-        // Check for out-of-bounds and health depletion
+        // First pass: check for out-of-bounds and health depletion
         for (i, snake) in self.snakes.iter().enumerate() {
             let head = snake.head();
 
             // Out-of-bounds check
             if head.index == usize::MAX {
-                dead_snakes.push(i);
+                dead_snakes_flags[i] = true;
                 continue;
             }
 
             // Health depletion
             if snake.health == 0 {
-                dead_snakes.push(i);
+                dead_snakes_flags[i] = true;
                 continue;
             }
         }
 
         // Food consumption and hazard damage
         for (i, snake) in self.snakes.iter_mut().enumerate() {
-            if dead_snakes.contains(&i) {
+            if dead_snakes_flags[i] {
                 continue; // Skip dead snakes
             }
 
@@ -142,7 +142,7 @@ impl GameState {
             if self.hazards.contains(&head) {
                 snake.health = snake.health.saturating_sub(15);
                 if snake.health == 0 {
-                    dead_snakes.push(i);
+                    dead_snakes_flags[i] = true;
                 }
             }
         }
@@ -154,7 +154,7 @@ impl GameState {
 
         // Check for collisions
         for i in 0..self.snakes.len() {
-            if dead_snakes.contains(&i) {
+            if dead_snakes_flags[i] {
                 continue; // Skip dead snakes
             }
 
@@ -162,30 +162,31 @@ impl GameState {
 
             // Self-collision
             if self.snakes[i].body.iter().skip(1).any(|&p| p == head) {
-                dead_snakes.push(i);
+                dead_snakes_flags[i] = true;
                 continue;
             }
 
             // Collision with other snakes
             for j in 0..self.snakes.len() {
-                if i == j || dead_snakes.contains(&j) {
+                if i == j || dead_snakes_flags[j] {
                     continue;
                 }
                 if self.snakes[j].body.contains(&head) {
                     if self.snakes[i].length() <= self.snakes[j].length() {
-                        dead_snakes.push(i);
+                        dead_snakes_flags[i] = true;
                     }
                     break;
                 }
             }
         }
 
-        // Remove dead snakes
-        dead_snakes.sort_unstable();
-        dead_snakes.dedup();
-        for index in dead_snakes.into_iter().rev() {
-            self.snakes.swap_remove(index);
-        }
+        // Remove dead snakes using retain
+        let mut index = 0;
+        self.snakes.retain(|_| {
+            let keep = !dead_snakes_flags[index];
+            index += 1;
+            keep
+        });
     }
 
     pub fn add_snake(&mut self, id: String, body: Vec<usize>, health: u8) {

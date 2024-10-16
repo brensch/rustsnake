@@ -3,15 +3,17 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use rand::seq::SliceRandom;
 use serde_json::json;
+use std::env;
 
 mod battlesnake_api;
 mod game_state;
 mod heuristic;
+mod search; // Include the MCTS module
 mod visualizer;
 
 use crate::battlesnake_api::{BattlesnakeRequest, MoveResponse};
 use crate::game_state::Direction;
-use crate::heuristic::{calculate_control_percentages, calculate_move_control};
+use crate::search::MCTS;
 use crate::visualizer::visualize_game_state;
 
 async fn index() -> impl Responder {
@@ -31,58 +33,25 @@ async fn start(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 }
 
 async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
-    let mut game_state = info.to_game_state();
-    let control_percentages = calculate_control_percentages(&game_state);
+    let game_state = info.to_game_state();
 
     println!("Turn: {}", info.turn);
     println!("Game state:\n{}", visualize_game_state(&game_state));
-    println!("Control percentages: {:?}", control_percentages);
 
-    // Find the index of our snake
-    let our_snake_index = game_state
-        .snakes
-        .iter()
-        .position(|s| s.id == info.you.id)
-        .unwrap();
+    // Create an MCTS instance
+    let mut mcts = MCTS::new(game_state.clone());
 
-    // Get safe moves
-    let safe_moves = game_state.get_safe_moves(our_snake_index);
+    // Run the MCTS for a specified duration (e.g., 400 milliseconds)
+    let duration = std::time::Duration::from_millis(400);
+    let num_threads = num_cpus::get();
+    println!("Number of threads: {}", num_threads);
 
-    if safe_moves.is_empty() {
-        // If there are no safe moves, choose a random direction
-        let moves = vec!["up", "down", "left", "right"];
-        let chosen_move = moves.choose(&mut rand::thread_rng()).unwrap();
+    mcts.run(duration, num_threads);
 
-        HttpResponse::Ok().json(MoveResponse {
-            r#move: chosen_move.to_string(),
-            shout: Some("No safe moves! Moving randomly!".to_string()),
-        })
-    } else {
-        // Calculate control percentages for each safe move
-        let move_controls: Vec<(Direction, f32)> = safe_moves
-            .iter()
-            .map(|&direction| {
-                (
-                    direction,
-                    calculate_move_control(&game_state, our_snake_index, direction),
-                )
-            })
-            .collect();
-
-        // Find the move(s) with the highest control percentage
-        let max_control = move_controls
-            .iter()
-            .map(|&(_, control)| control)
-            .fold(f32::NEG_INFINITY, f32::max);
-        let best_moves: Vec<&Direction> = move_controls
-            .iter()
-            .filter(|&(_, control)| *control == max_control)
-            .map(|(direction, _)| direction)
-            .collect();
-
-        // Choose a random move from the best moves
-        let chosen_direction = best_moves.choose(&mut rand::thread_rng()).unwrap();
-        let chosen_move = match chosen_direction {
+    // Get the best move for our snake
+    let our_snake_id = &info.you.id;
+    if let Some(our_move) = mcts.get_best_move_for_snake(our_snake_id) {
+        let chosen_move = match our_move {
             Direction::Up => "up",
             Direction::Down => "down",
             Direction::Left => "left",
@@ -91,10 +60,16 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 
         HttpResponse::Ok().json(MoveResponse {
             r#move: chosen_move.to_string(),
-            shout: Some(format!(
-                "Moving {} for max control: {:.2}%",
-                chosen_move, max_control
-            )),
+            shout: Some(format!("Moving {} using MCTS", chosen_move)),
+        })
+    } else {
+        // No valid move found; choose a random direction
+        let moves = vec!["up", "down", "left", "right"];
+        let chosen_move = moves.choose(&mut rand::thread_rng()).unwrap();
+
+        HttpResponse::Ok().json(MoveResponse {
+            r#move: chosen_move.to_string(),
+            shout: Some("No valid moves! Moving randomly!".to_string()),
         })
     }
 }
@@ -106,6 +81,11 @@ async fn end(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    // Get the port from the environment variable or default to 8080
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+
+    println!("Starting server on port: {}", port);
+
     HttpServer::new(|| {
         App::new()
             .route("/", web::get().to(index))
@@ -113,7 +93,7 @@ async fn main() -> std::io::Result<()> {
             .route("/move", web::post().to(r#move))
             .route("/end", web::post().to(end))
     })
-    .bind("127.0.0.1:8080")?
+    .bind(format!("0.0.0.0:{}", port))? // Bind to the selected port
     .run()
     .await
 }

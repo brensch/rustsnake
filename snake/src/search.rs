@@ -12,22 +12,21 @@ pub struct Node {
     pub value: Vec<f32>,
     pub visits: u32,
     pub children: Vec<Arc<Mutex<Node>>>,
-    pub moves: Vec<Direction>, // Moves made to reach this node
+    pub moves: Vec<Option<Direction>>, // Moves made to reach this node
     pub parent: Weak<Mutex<Node>>,
 }
 
 pub struct MCTS {
-    pub root: Arc<Mutex<Node>>, // Made public to access in tests
+    pub root: Arc<Mutex<Node>>,
     exploration_constant: f32,
 }
 
 impl MCTS {
     pub fn new(initial_state: GameState) -> Self {
-        let num_snakes = initial_state.snakes.len();
         MCTS {
             root: Arc::new(Mutex::new(Node {
                 game_state: initial_state,
-                value: vec![0.0; num_snakes],
+                value: Vec::new(),
                 visits: 0,
                 children: Vec::new(),
                 moves: Vec::new(), // Root node has no moves
@@ -100,20 +99,20 @@ impl MCTS {
     }
 
     fn expand(node: &Arc<Mutex<Node>>) {
-        let mut node_lock = node.lock().unwrap_or_else(|e| e.into_inner()); // Declare as mutable
+        let mut node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
         let num_snakes = node_lock.game_state.snakes.len();
 
         // Collect safe moves for each snake
         let mut snakes_safe_moves = Vec::new();
         for snake_index in 0..num_snakes {
             let safe_moves = node_lock.game_state.get_safe_moves(snake_index);
-            // If a snake has no safe moves, it will die
-            if safe_moves.is_empty() {
-                // Optionally, you can assign a default move or handle it accordingly
-                snakes_safe_moves.push(vec![Direction::Up]); // Assign a default move
+            // Represent moves as Option<Direction>; if no safe moves, use None
+            let moves_with_option: Vec<Option<Direction>> = if safe_moves.is_empty() {
+                vec![None] // Snake has no safe moves
             } else {
-                snakes_safe_moves.push(safe_moves);
-            }
+                safe_moves.into_iter().map(Some).collect()
+            };
+            snakes_safe_moves.push(moves_with_option);
         }
 
         // Generate all combinations of moves
@@ -121,14 +120,16 @@ impl MCTS {
 
         for moves in move_combinations {
             let mut new_state = node_lock.game_state.clone();
-            for (i, &direction) in moves.iter().enumerate() {
-                new_state.move_snake(i, direction);
+            for (i, move_option) in moves.iter().enumerate() {
+                if let Some(direction) = move_option {
+                    new_state.move_snake(i, *direction);
+                }
             }
             new_state.resolve_collisions();
 
             let new_node = Node {
                 game_state: new_state,
-                value: vec![0.0; num_snakes],
+                value: Vec::new(),
                 visits: 0,
                 children: Vec::new(),
                 moves: moves.clone(),
@@ -174,14 +175,14 @@ impl MCTS {
     fn back_propagate(node: &Arc<Mutex<Node>>) {
         let mut current = Arc::clone(node);
         loop {
-            let mut node = current.lock().unwrap_or_else(|e| e.into_inner()); // Declare as mutable
+            let mut node = current.lock().unwrap_or_else(|e| e.into_inner());
             node.visits += 1;
+
+            // Calculate control percentages
             let control_percentages = heuristic::calculate_control_percentages(&node.game_state);
-            for (i, &percentage) in control_percentages.iter().enumerate() {
-                if i < node.value.len() {
-                    node.value[i] += percentage;
-                }
-            }
+
+            // Update node.value
+            node.value = control_percentages;
 
             match node.parent.upgrade() {
                 Some(parent) => {
@@ -197,11 +198,8 @@ impl MCTS {
         game_state.snakes.len() <= 1
     }
 
-    pub fn get_best_moves(&self) -> Vec<Direction> {
+    pub fn get_best_move_for_snake(&self, our_snake_id: &str) -> Option<Direction> {
         let root = self.root.lock().unwrap_or_else(|e| e.into_inner());
-        let num_snakes = root.game_state.snakes.len();
-
-        let mut best_moves = vec![Direction::Up; num_snakes]; // Default moves
 
         if !root.children.is_empty() {
             let best_child = root
@@ -211,11 +209,27 @@ impl MCTS {
 
             if let Some(child) = best_child {
                 let child_lock = child.lock().unwrap_or_else(|e| e.into_inner());
-                best_moves = child_lock.moves.clone();
+
+                // Find the index of our snake in the parent game state
+                let our_snake_index = root
+                    .game_state
+                    .snakes
+                    .iter()
+                    .position(|s| s.id == our_snake_id);
+
+                if let Some(index) = our_snake_index {
+                    // Since snakes may die, check if our snake is still alive in the child node
+                    if index < child_lock.moves.len() {
+                        if let Some(direction) = child_lock.moves[index] {
+                            return Some(direction);
+                        }
+                    }
+                }
             }
         }
 
-        best_moves
+        // Fallback to a default move
+        None
     }
 }
 
@@ -223,6 +237,10 @@ impl MCTS {
 fn cartesian_product<T: Clone>(lists: &[Vec<T>]) -> Vec<Vec<T>> {
     let mut result: Vec<Vec<T>> = vec![vec![]];
     for pool in lists {
+        if pool.is_empty() {
+            // If any pool is empty, the Cartesian product is empty
+            return vec![];
+        }
         let mut temp = Vec::new();
         for x in &result {
             for y in pool {
