@@ -74,28 +74,75 @@ impl GameState {
         let new_head = Position {
             index: new_head_index,
         };
-        let ate_food = self.food.contains(&new_head);
-        let on_hazard = self.hazards.contains(&new_head);
 
         // Update snake
         let snake = &mut self.snakes[snake_index];
         snake.body.push_front(new_head);
-        if !ate_food {
-            snake.body.pop_back();
+        snake.body.pop_back();
+        snake.health = snake.health.saturating_sub(1);
+    }
+
+    pub fn resolve_collisions(&mut self) {
+        let mut eaten_food = Vec::new();
+        let mut dead_snakes = Vec::new();
+
+        // Check for food consumption and hazard damage
+        for (i, snake) in self.snakes.iter_mut().enumerate() {
+            let head = snake.head();
+
+            // Food consumption
+            if let Some(food_index) = self.food.iter().position(|&f| f == head) {
+                eaten_food.push(food_index);
+                snake.body.push_back(*snake.body.back().unwrap());
+                snake.health = 100; // Reset health when food is eaten
+            }
+
+            // Hazard damage
+            if self.hazards.contains(&head) {
+                snake.health = snake.health.saturating_sub(15);
+            }
+
+            // Check for death
+            if snake.health == 0 {
+                dead_snakes.push(i);
+            }
         }
-        snake.health = if on_hazard {
-            snake.health.saturating_sub(15)
-        } else {
-            snake.health.saturating_sub(1)
-        };
 
         // Remove eaten food
-        if ate_food {
-            self.food.retain(|&pos| pos != new_head);
+        for index in eaten_food.into_iter().rev() {
+            self.food.swap_remove(index);
+        }
+
+        // Check for collisions
+        for i in 0..self.snakes.len() {
+            let head = self.snakes[i].head();
+            for j in 0..self.snakes.len() {
+                if i == j {
+                    // Self collision (excluding head)
+                    if self.snakes[i].body.iter().skip(1).any(|&p| p == head) {
+                        dead_snakes.push(i);
+                        break;
+                    }
+                } else {
+                    // Collision with other snake
+                    if self.snakes[j].body.contains(&head) {
+                        if self.snakes[i].length() <= self.snakes[j].length() {
+                            dead_snakes.push(i);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Remove dead snakes
+        dead_snakes.sort_unstable();
+        dead_snakes.dedup();
+        for index in dead_snakes.into_iter().rev() {
+            self.snakes.swap_remove(index);
         }
     }
 
-    // New method to add a snake
     pub fn add_snake(&mut self, id: String, body: Vec<usize>, health: u8) {
         let snake_body: VecDeque<Position> =
             body.into_iter().map(|index| Position { index }).collect();
@@ -107,12 +154,10 @@ impl GameState {
         self.snakes.push(snake);
     }
 
-    // New method to add food
     pub fn add_food(&mut self, index: usize) {
         self.food.push(Position { index });
     }
 
-    // New method to add hazard
     pub fn add_hazard(&mut self, index: usize) {
         self.hazards.push(Position { index });
     }
@@ -158,24 +203,10 @@ impl GameState {
             return false;
         }
 
-        // Check if the position collides with any snake's body
-        for (i, snake) in self.snakes.iter().enumerate() {
-            if i == snake_index {
-                // For our snake, only check collision with the body (excluding the tail)
-                if snake
-                    .body
-                    .iter()
-                    .take(snake.body.len() - 1)
-                    .any(|&p| p == position)
-                {
-                    return false;
-                }
-            } else {
-                // For other snakes, check collision with the entire body
-                if snake.body.iter().any(|&p| p == position) {
-                    return false;
-                }
-            }
+        // Check if the position collides with the snake's own neck
+        let snake = &self.snakes[snake_index];
+        if snake.body.len() > 1 && position == snake.body[1] {
+            return false;
         }
 
         true
