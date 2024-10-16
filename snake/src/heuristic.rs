@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::game_state::GameState;
+use crate::game_state::{Direction, GameState};
 
 pub fn calculate_snake_control(game_state: &GameState) -> Vec<i8> {
     let board_size = game_state.width * game_state.height;
@@ -28,8 +28,9 @@ pub fn calculate_snake_control(game_state: &GameState) -> Vec<i8> {
             if new_pos < 0 || new_pos >= board_size as i32 {
                 continue;
             }
-            if (pos % game_state.width == 0 && dir == -1) || 
-               (pos % game_state.width == game_state.width - 1 && dir == 1) {
+            if (pos % game_state.width == 0 && dir == -1)
+                || (pos % game_state.width == game_state.width - 1 && dir == 1)
+            {
                 continue;
             }
 
@@ -53,10 +54,38 @@ pub fn calculate_control_percentages(game_state: &GameState) -> Vec<f32> {
     for &c in &control {
         if c >= 0 {
             counts[c as usize] += 1;
-        } 
+        }
     }
 
-    counts.iter()
+    counts
+        .iter()
         .map(|&count| (count as f32 / board_size as f32) * 100.0)
         .collect()
+}
+
+pub fn calculate_move_control(
+    game_state: &GameState,
+    snake_index: usize,
+    direction: Direction,
+) -> f32 {
+    let snake = &game_state.snakes[snake_index];
+    let (head_x, head_y) = game_state.index_to_coord(snake.head().index);
+
+    let new_position =
+        match direction {
+            Direction::Up => game_state.coord_to_index(head_x, (head_y + 1) % game_state.height),
+            Direction::Down => game_state
+                .coord_to_index(head_x, (head_y + game_state.height - 1) % game_state.height),
+            Direction::Left => game_state
+                .coord_to_index((head_x + game_state.width - 1) % game_state.width, head_y),
+            Direction::Right => game_state.coord_to_index((head_x + 1) % game_state.width, head_y),
+        };
+
+    let mut new_game_state = game_state.clone();
+    new_game_state.move_snake(snake_index, direction);
+
+    let control = calculate_snake_control(&new_game_state);
+    let snake_control = control.iter().filter(|&&c| c == snake_index as i8).count();
+
+    (snake_control as f32 / (game_state.width * game_state.height) as f32) * 100.0
 }

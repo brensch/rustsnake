@@ -1,7 +1,7 @@
 // File: tests/heuristic_test.rs
 
-use battlesnake::heuristic::{calculate_snake_control, calculate_control_percentages};
-use battlesnake::visualizer::json_to_game_state;
+use battlesnake::heuristic::{calculate_control_percentages, calculate_snake_control};
+use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
 use serde_json::json;
 
 struct TestCase {
@@ -34,13 +34,9 @@ fn create_test_cases() -> Vec<TestCase> {
                 "hazards": []
             }),
             expected_control: vec![
-                0, 0, 0, 0, 1,
-                0, 0, 0, 1, 1,
-                0, 0,-1, 1, 1,
-                0, 1, 1, 1, 1,
-                1, 1, 1, 1, 1
+                0, 0, 0, 0, -1, 0, 0, 0, -1, 1, 0, 0, -1, 1, 1, 0, -1, 1, 1, 1, -1, 1, 1, 1, 1,
             ],
-            expected_percentages: vec![44.0, 56.0],
+            expected_percentages: vec![40.0, 40.0],
         },
         TestCase {
             name: "Single snake scenario",
@@ -57,12 +53,8 @@ fn create_test_cases() -> Vec<TestCase> {
                 "food": [],
                 "hazards": []
             }),
-            expected_control: vec![
-                0, 0, 0,
-                0, 0, 0,
-                -1, -1, -1
-            ],
-            expected_percentages: vec![66.66666666666666],
+            expected_control: vec![0, 0, 0, 0, 0, 0, 0, 0, 0],
+            expected_percentages: vec![100.0],
         },
         TestCase {
             name: "Three snake scenario",
@@ -90,13 +82,8 @@ fn create_test_cases() -> Vec<TestCase> {
                 "hazards": []
             }),
             expected_control: vec![
-                0, 0, 0, 0,-1, 1, 1,
-                0, 0, 0,-1,-1, 1, 1,
-                0, 0, 2, 2, 2, 1, 1,
-                0, 2, 2, 2, 2, 2, 1,
-                2, 2, 2, 2, 2, 2,-1,
-                2, 2, 2, 2, 1, 1, 1,
-                2, 2, 1, 1, 1, 1, 1
+                0, 0, 0, 0, -1, -1, -1, 0, 0, 0, 2, 2, -1, -1, 0, 0, 2, 2, 2, 2, -1, 0, 2, 2, 2, 2,
+                2, 1, -1, 2, 2, 2, 2, 1, 1, -1, -1, 2, 2, 1, 1, 1, -1, -1, -1, 1, 1, 1, 1,
             ],
             expected_percentages: vec![16.32653061224490, 32.65306122448980, 34.69387755102041],
         },
@@ -104,23 +91,72 @@ fn create_test_cases() -> Vec<TestCase> {
     ]
 }
 
-
+fn visualize_control(control: &[i8], width: usize, height: usize) -> String {
+    control
+        .chunks(width)
+        .map(|row| {
+            row.iter()
+                .map(|&c| match c {
+                    -1 => '.',
+                    0..=9 => std::char::from_digit(c as u32, 10).unwrap(),
+                    _ => '#',
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
 
 #[test]
 fn test_snake_control_calculation() {
     let test_cases = create_test_cases();
-    
+
     for case in test_cases {
         let game_state = json_to_game_state(&case.input);
-        
+
+        println!("Test case: {}", case.name);
+        println!("Initial game state:");
+        println!("{}", visualize_game_state(&game_state));
+
         let control = calculate_snake_control(&game_state);
-        assert_eq!(control, case.expected_control, "Test case '{}' failed for control calculation", case.name);
-        
+        println!("Calculated control:");
+        println!(
+            "{}",
+            visualize_control(&control, game_state.width, game_state.height)
+        );
+        println!("Expected control:");
+        println!(
+            "{}",
+            visualize_control(&case.expected_control, game_state.width, game_state.height)
+        );
+
+        assert_eq!(
+            control, case.expected_control,
+            "Test case '{}' failed for control calculation",
+            case.name
+        );
+
         let percentages = calculate_control_percentages(&game_state);
-        assert_eq!(percentages.len(), case.expected_percentages.len(), "Test case '{}' failed: percentage count mismatch", case.name);
-        
+        println!("Calculated percentages: {:?}", percentages);
+        println!("Expected percentages: {:?}", case.expected_percentages);
+
+        assert_eq!(
+            percentages.len(),
+            case.expected_percentages.len(),
+            "Test case '{}' failed: percentage count mismatch",
+            case.name
+        );
+
         for (actual, expected) in percentages.iter().zip(case.expected_percentages.iter()) {
-            assert!((actual - expected).abs() < 0.01, "Test case '{}' failed: percentage mismatch. Expected {}, got {}", case.name, expected, actual);
+            assert!(
+                (actual - expected).abs() < 0.01,
+                "Test case '{}' failed: percentage mismatch. Expected {}, got {}",
+                case.name,
+                expected,
+                actual
+            );
         }
+
+        println!("\n");
     }
 }

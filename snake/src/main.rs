@@ -1,33 +1,119 @@
 // File: src/main.rs
 
-use battlesnake::game_state::{GameState, Snake, Position, Direction};
-use battlesnake::visualizer::visualize_game_state;
+use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use rand::seq::SliceRandom;
+use serde_json::json;
 
-fn main() {
-    // Create a new game state
-    let mut game = GameState::new(11, 11);
+mod battlesnake_api;
+mod game_state;
+mod heuristic;
+mod visualizer;
 
-    // Add a snake
-    let snake = Snake {
-        id: "player1".to_string(),
-        body: vec![Position { index: 60 }, Position { index: 61 }, Position { index: 62 }].into(),
-        health: 100,
-    };
-    game.snakes.push(snake);
+use crate::battlesnake_api::{BattlesnakeRequest, MoveResponse};
+use crate::game_state::Direction;
+use crate::heuristic::{calculate_control_percentages, calculate_move_control};
+use crate::visualizer::visualize_game_state;
 
-    // Add some food
-    game.food.push(Position { index: 22 });
-    game.food.push(Position { index: 55 });
+async fn index() -> impl Responder {
+    HttpResponse::Ok().json(json!({
+        "apiversion": "1",
+        "author": "Coolism",
+        "color": "#888888",
+        "head": "default",
+        "tail": "default",
+        "version": "0.0.1"
+    }))
+}
 
-    // Add a hazard
-    game.hazards.push(Position { index: 33 });
+async fn start(info: web::Json<BattlesnakeRequest>) -> impl Responder {
+    println!("Game started: {}", info.game.id);
+    HttpResponse::Ok()
+}
 
-    // Visualize initial state
-    println!("Initial state:\n{}", visualize_game_state(&game));
+async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
+    let mut game_state = info.to_game_state();
+    let control_percentages = calculate_control_percentages(&game_state);
 
-    // Move the snake
-    game.move_snake(0, Direction::Up);
+    println!("Turn: {}", info.turn);
+    println!("Game state:\n{}", visualize_game_state(&game_state));
+    println!("Control percentages: {:?}", control_percentages);
 
-    // Visualize state after move
-    println!("\nState after move:\n{}", visualize_game_state(&game));
+    // Find the index of our snake
+    let our_snake_index = game_state
+        .snakes
+        .iter()
+        .position(|s| s.id == info.you.id)
+        .unwrap();
+
+    // Get safe moves
+    let safe_moves = game_state.get_safe_moves(our_snake_index);
+
+    if safe_moves.is_empty() {
+        // If there are no safe moves, choose a random direction
+        let moves = vec!["up", "down", "left", "right"];
+        let chosen_move = moves.choose(&mut rand::thread_rng()).unwrap();
+
+        HttpResponse::Ok().json(MoveResponse {
+            r#move: chosen_move.to_string(),
+            shout: Some("No safe moves! Moving randomly!".to_string()),
+        })
+    } else {
+        // Calculate control percentages for each safe move
+        let move_controls: Vec<(Direction, f32)> = safe_moves
+            .iter()
+            .map(|&direction| {
+                (
+                    direction,
+                    calculate_move_control(&game_state, our_snake_index, direction),
+                )
+            })
+            .collect();
+
+        // Find the move(s) with the highest control percentage
+        let max_control = move_controls
+            .iter()
+            .map(|&(_, control)| control)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let best_moves: Vec<&Direction> = move_controls
+            .iter()
+            .filter(|&(_, control)| *control == max_control)
+            .map(|(direction, _)| direction)
+            .collect();
+
+        // Choose a random move from the best moves
+        let chosen_direction = best_moves.choose(&mut rand::thread_rng()).unwrap();
+        let chosen_move = match chosen_direction {
+            Direction::Up => "up",
+            Direction::Down => "down",
+            Direction::Left => "left",
+            Direction::Right => "right",
+        };
+
+        HttpResponse::Ok().json(MoveResponse {
+            r#move: chosen_move.to_string(),
+            shout: Some(format!(
+                "Moving {} for max control: {:.2}%",
+                chosen_move, max_control
+            )),
+        })
+    }
+}
+
+async fn end(info: web::Json<BattlesnakeRequest>) -> impl Responder {
+    println!("Game ended: {}", info.game.id);
+    HttpResponse::Ok()
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    HttpServer::new(|| {
+        App::new()
+            .route("/", web::get().to(index))
+            .route("/start", web::post().to(start))
+            .route("/move", web::post().to(r#move))
+            .route("/end", web::post().to(end))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
 }
