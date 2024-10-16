@@ -87,6 +87,37 @@ fn create_test_cases() -> Vec<TestCase> {
             ],
             expected_percentages: vec![20.408163, 20.408163, 34.69388],
         },
+        TestCase {
+            name: "Three snake scenario",
+            input: json!({
+                "width": 7,
+                "height": 7,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [0, 1, 2],
+                        "health": 100
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [],
+                        "health": 0
+                    },
+                    {
+                        "id": "snake3",
+                        "body": [24, 25, 26],
+                        "health": 100
+                    }
+                ],
+                "food": [],
+                "hazards": []
+            }),
+            expected_control: vec![
+                0, 0, 0, 0, -1, -1, -1, 0, 0, 0, 2, 2, -1, -1, 0, 0, 2, 2, 2, 2, -1, 0, 2, 2, 2, 2,
+                2, 1, -1, 2, 2, 2, 2, 1, 1, -1, -1, 2, 2, 1, 1, 1, -1, -1, -1, 1, 1, 1, 1,
+            ],
+            expected_percentages: vec![20.408163, 20.408163, 34.69388],
+        },
         // Add more test cases as needed
     ]
 }
