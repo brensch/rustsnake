@@ -1,6 +1,5 @@
 // File: tests/visualizer_test.rs
 
-use battlesnake::game_state::{GameState, Snake, Position};
 use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
 use serde_json::json;
 
