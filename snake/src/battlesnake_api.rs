@@ -1,5 +1,3 @@
-// File: src/battlesnake_api.rs
-
 use crate::game_state::{GameState, Position, Snake};
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +41,7 @@ pub struct Battlesnake {
     pub length: usize,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Coord {
     pub x: usize,
     pub y: usize,
@@ -64,19 +62,19 @@ impl BattlesnakeRequest {
             let body: Vec<usize> = snake
                 .body
                 .iter()
-                .map(|coord| game_state.coord_to_index(coord.x, coord.y))
+                .map(|coord| game_state.coord_to_index(coord.x as isize, coord.y as isize))
                 .collect();
             game_state.add_snake(snake.id.clone(), body, snake.health);
         }
 
         // Add food
         for food in &self.board.food {
-            game_state.add_food(game_state.coord_to_index(food.x, food.y));
+            game_state.add_food(game_state.coord_to_index(food.x as isize, food.y as isize));
         }
 
         // Add hazards
         for hazard in &self.board.hazards {
-            game_state.add_hazard(game_state.coord_to_index(hazard.x, hazard.y));
+            game_state.add_hazard(game_state.coord_to_index(hazard.x as isize, hazard.y as isize));
         }
 
         game_state

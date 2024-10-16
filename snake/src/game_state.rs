@@ -1,5 +1,3 @@
-// File: src/game_state.rs
-
 use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,16 +42,19 @@ impl GameState {
         }
     }
 
-    pub fn index_to_coord(&self, index: usize) -> (usize, usize) {
-        (index % self.width, index / self.width)
+    pub fn index_to_coord(&self, index: usize) -> (isize, isize) {
+        let x = (index % self.width) as isize;
+        let y = (index / self.width) as isize;
+        (x, y)
     }
 
-    pub fn coord_to_index(&self, x: usize, y: usize) -> usize {
-        y * self.width + x
+    pub fn coord_to_index(&self, x: isize, y: isize) -> usize {
+        (y as usize) * self.width + (x as usize)
     }
 
     pub fn is_within_bounds(&self, position: Position) -> bool {
-        position.index < self.width * self.height
+        let (x, y) = self.index_to_coord(position.index);
+        x >= 0 && x < self.width as isize && y >= 0 && y < self.height as isize
     }
 
     pub fn move_snake(&mut self, snake_index: usize, direction: Direction) {
@@ -61,23 +62,23 @@ impl GameState {
             return;
         }
 
-        let (width, height) = (self.width, self.height);
         let (head_x, head_y) = self.index_to_coord(self.snakes[snake_index].head().index);
 
-        let new_head_index = match direction {
-            Direction::Up => self.coord_to_index(head_x, (head_y + 1) % height),
-            Direction::Down => self.coord_to_index(head_x, (head_y + height - 1) % height),
-            Direction::Left => self.coord_to_index((head_x + width - 1) % width, head_y),
-            Direction::Right => self.coord_to_index((head_x + 1) % width, head_y),
+        let (new_x, new_y) = match direction {
+            Direction::Up => (head_x, head_y + 1),
+            Direction::Down => (head_x, head_y.wrapping_sub(1)),
+            Direction::Left => (head_x.wrapping_sub(1), head_y),
+            Direction::Right => (head_x + 1, head_y),
         };
 
-        let new_head = Position {
-            index: new_head_index,
+        // Create a new head position without wrapping
+        let new_position = Position {
+            index: self.coord_to_index(new_x, new_y),
         };
 
         // Update snake
         let snake = &mut self.snakes[snake_index];
-        snake.body.push_front(new_head);
+        snake.body.push_front(new_position);
         snake.body.pop_back();
         snake.health = snake.health.saturating_sub(1);
     }
@@ -86,23 +87,27 @@ impl GameState {
         let mut eaten_food = Vec::new();
         let mut dead_snakes = Vec::new();
 
-        // Check for food consumption and hazard damage
-        for (i, snake) in self.snakes.iter_mut().enumerate() {
+        // First pass: check for food consumption, hazard damage, and out-of-bounds
+        for (i, snake) in self.snakes.iter().enumerate() {
             let head = snake.head();
+
+            // Check if the snake is out of bounds
+            if !self.is_within_bounds(head) {
+                dead_snakes.push(i);
+                continue; // Skip the rest of the checks for this snake
+            }
 
             // Food consumption
             if let Some(food_index) = self.food.iter().position(|&f| f == head) {
                 eaten_food.push(food_index);
-                snake.body.push_back(*snake.body.back().unwrap());
-                snake.health = 100; // Reset health when food is eaten
             }
 
             // Hazard damage
             if self.hazards.contains(&head) {
-                snake.health = snake.health.saturating_sub(15);
+                dead_snakes.push(i); // If snake head is in hazard, mark snake as dead
             }
 
-            // Check for death
+            // Check for health depletion
             if snake.health == 0 {
                 dead_snakes.push(i);
             }
@@ -113,24 +118,15 @@ impl GameState {
             self.food.swap_remove(index);
         }
 
-        // Check for collisions
+        // Second pass: check for collisions between snakes
         for i in 0..self.snakes.len() {
             let head = self.snakes[i].head();
             for j in 0..self.snakes.len() {
-                if i == j {
-                    // Self collision (excluding head)
-                    if self.snakes[i].body.iter().skip(1).any(|&p| p == head) {
+                if i != j && self.snakes[j].body.contains(&head) {
+                    if self.snakes[i].length() <= self.snakes[j].length() {
                         dead_snakes.push(i);
-                        break;
                     }
-                } else {
-                    // Collision with other snake
-                    if self.snakes[j].body.contains(&head) {
-                        if self.snakes[i].length() <= self.snakes[j].length() {
-                            dead_snakes.push(i);
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
         }
@@ -173,23 +169,18 @@ impl GameState {
             Direction::Left,
             Direction::Right,
         ] {
-            let new_position = match direction {
-                Direction::Up => self.coord_to_index(head_x, (head_y + 1) % self.height),
-                Direction::Down => {
-                    self.coord_to_index(head_x, (head_y + self.height - 1) % self.height)
-                }
-                Direction::Left => {
-                    self.coord_to_index((head_x + self.width - 1) % self.width, head_y)
-                }
-                Direction::Right => self.coord_to_index((head_x + 1) % self.width, head_y),
+            let (new_x, new_y) = match direction {
+                Direction::Up => (head_x, head_y + 1),
+                Direction::Down => (head_x, head_y.wrapping_sub(1)),
+                Direction::Left => (head_x.wrapping_sub(1), head_y),
+                Direction::Right => (head_x + 1, head_y),
             };
 
-            if self.is_safe_move(
-                Position {
-                    index: new_position,
-                },
-                snake_index,
-            ) {
+            let new_position = Position {
+                index: self.coord_to_index(new_x, new_y),
+            };
+
+            if self.is_safe_move(new_position, snake_index) {
                 safe_moves.push(direction);
             }
         }
@@ -203,10 +194,21 @@ impl GameState {
             return false;
         }
 
-        // Check if the position collides with the snake's own neck
         let snake = &self.snakes[snake_index];
+
+        // Check if the position collides with the snake's own neck
         if snake.body.len() > 1 && position == snake.body[1] {
             return false;
+        }
+
+        // Check for collisions with other snakes
+        for (i, other_snake) in self.snakes.iter().enumerate() {
+            if i == snake_index {
+                continue;
+            }
+            if other_snake.body.contains(&position) {
+                return false;
+            }
         }
 
         true

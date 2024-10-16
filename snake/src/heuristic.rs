@@ -68,19 +68,6 @@ pub fn calculate_move_control(
     snake_index: usize,
     direction: Direction,
 ) -> f32 {
-    let snake = &game_state.snakes[snake_index];
-    let (head_x, head_y) = game_state.index_to_coord(snake.head().index);
-
-    let new_position =
-        match direction {
-            Direction::Up => game_state.coord_to_index(head_x, (head_y + 1) % game_state.height),
-            Direction::Down => game_state
-                .coord_to_index(head_x, (head_y + game_state.height - 1) % game_state.height),
-            Direction::Left => game_state
-                .coord_to_index((head_x + game_state.width - 1) % game_state.width, head_y),
-            Direction::Right => game_state.coord_to_index((head_x + 1) % game_state.width, head_y),
-        };
-
     let mut new_game_state = game_state.clone();
     new_game_state.move_snake(snake_index, direction);
 
