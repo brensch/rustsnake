@@ -7,53 +7,77 @@ pub fn calculate_snake_control(game_state: &GameState) -> Vec<i8> {
     let height = game_state.height;
     let board_size = width * height;
     let mut control = vec![-1; board_size];
+    let mut min_depth = vec![u32::MAX; board_size];
     let mut queue = VecDeque::new();
-    let mut visited = vec![false; board_size];
+
+    // Precompute when each position becomes unoccupied
+    let mut position_unoccupied_at = vec![0u32; board_size];
+
+    for snake in &game_state.snakes {
+        let body_len = snake.body.len() as u32;
+
+        // Skip if the snake is out of bounds or dead
+        if snake.health == 0 || snake.body.is_empty() || snake.body[0].index == usize::MAX {
+            continue;
+        }
+
+        for (i, body_part) in snake.body.iter().enumerate() {
+            let pos = body_part.index;
+            let t = i as u32 + 1; // Time when the position becomes unoccupied
+            if t > position_unoccupied_at[pos] {
+                position_unoccupied_at[pos] = t;
+            }
+        }
+    }
 
     // Initialize the queue with snake heads
     for (i, snake) in game_state.snakes.iter().enumerate() {
         let head = snake.body[0].index;
 
-        // Skip if the snake is out of bounds
+        // Skip if the snake is out of bounds or dead
         if head == usize::MAX || snake.health == 0 {
             continue;
         }
 
-        queue.push_back((head, i as i8, snake.body.len() as i32));
-        visited[head] = true;
+        queue.push_back((head, i as i8, 0u32)); // position, snake_id, depth
+        min_depth[head] = 0;
         control[head] = i as i8;
     }
 
-    while let Some((pos, snake_id, remaining_length)) = queue.pop_front() {
-        if remaining_length == 0 {
-            continue;
-        }
+    while let Some((pos, snake_id, depth)) = queue.pop_front() {
+        let next_depth = depth + 1;
 
-        let mut neighbors = Vec::new();
+        // Directions: Up (-width), Down (+width), Left (-1), Right (+1)
+        let directions = [-(width as isize), width as isize, -1, 1];
 
-        // Calculate neighboring positions without wrapping
-        // Up
-        if pos >= width {
-            neighbors.push(pos - width);
-        }
-        // Down
-        if pos + width < board_size {
-            neighbors.push(pos + width);
-        }
-        // Left
-        if pos % width != 0 {
-            neighbors.push(pos - 1);
-        }
-        // Right
-        if pos % width != width - 1 {
-            neighbors.push(pos + 1);
-        }
+        for &offset in &directions {
+            let new_pos = pos as isize + offset;
 
-        for new_pos in neighbors {
-            if !visited[new_pos] {
-                visited[new_pos] = true;
+            // Check if new position is within bounds
+            if new_pos < 0 || new_pos >= board_size as isize {
+                continue;
+            }
+
+            // Check for horizontal wrapping
+            if (offset == -1 && pos % width == 0) || (offset == 1 && (pos + 1) % width == 0) {
+                continue;
+            }
+
+            let new_pos = new_pos as usize;
+
+            // Check if the position is unoccupied at the time we reach it
+            if position_unoccupied_at[new_pos] > next_depth {
+                continue; // Position is occupied
+            }
+
+            // Update control if we found a shorter path or a snake with a lower index
+            if next_depth < min_depth[new_pos] {
+                min_depth[new_pos] = next_depth;
                 control[new_pos] = snake_id;
-                queue.push_back((new_pos, snake_id, remaining_length - 1));
+                queue.push_back((new_pos, snake_id, next_depth));
+            } else if next_depth == min_depth[new_pos] && snake_id < control[new_pos] {
+                control[new_pos] = snake_id;
+                // No need to enqueue again since depth is the same
             }
         }
     }
