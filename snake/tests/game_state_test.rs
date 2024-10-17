@@ -100,7 +100,18 @@ fn create_test_cases() -> Vec<TestCase> {
             expected_state: json!({
                 "width": 5,
                 "height": 5,
-                "snakes": [],
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [7, 12, 13],
+                        "health": 0
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [12, 7, 6],
+                        "health": 0
+                    }
+                ],
                 "food": [],
                 "hazards": []
             }),
@@ -125,7 +136,13 @@ fn create_test_cases() -> Vec<TestCase> {
             expected_state: json!({
                 "width": 5,
                 "height": 5,
-                "snakes": [],
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [11, 12, 13],
+                        "health": 0
+                    }
+                ],
                 "food": [],
                 "hazards": []
             }),
@@ -150,12 +167,130 @@ fn create_test_cases() -> Vec<TestCase> {
             expected_state: json!({
                 "width": 7,
                 "height": 7,
-                "snakes": [],
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [ 25,24,17, 10, 11, 18 ],
+                        "health": 89
+                    }
+                ],
                 "food": [],
                 "hazards": []
             }),
         },
-        // Add more test cases as needed
+        // Test Case 6: Head collision between snakes
+        TestCase {
+            name: "Head collision between snakes",
+            initial_state: json!({
+                "width": 7,
+                "height": 7,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [2, 1, 0],
+                        "health": 90
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [4, 5, 6],
+                        "health": 90
+                    }
+                ],
+                "food": [],
+                "hazards": []
+            }),
+            snake_moves: vec!["right".to_string(), "left".to_string()], // Moves for snake1 and snake2
+            expected_state: json!({
+                "width": 7,
+                "height": 7,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [3, 2, 1],
+                        "health": 0
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [3, 4, 5],
+                        "health": 0
+                    }
+                ],
+                "food": [],
+                "hazards": []
+            }),
+        },
+        // Test Case 10: Snake collides with itself
+        TestCase {
+            name: "Snake collides with itself",
+            initial_state: json!({
+                "width": 5,
+                "height": 5,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [6, 7, 8, 13, 12, 11, 10],
+                        "health": 90
+                    }
+                ],
+                "food": [1], // Food at index 1
+                "hazards": []
+            }),
+            snake_moves: vec!["down".to_string()], // Move for snake1
+            expected_state: json!({
+                "width": 5,
+                "height": 5,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [11, 6, 7, 8, 13, 12, 11],
+                        "health": 0
+                    }
+                ],
+                "food": [1],
+                "hazards": []
+            }),
+        },
+        // Test Case 11: Snake collides with another snake's body and dies
+        TestCase {
+            name: "Snake collides with another snake's body and dies",
+            initial_state: json!({
+                "width": 5,
+                "height": 5,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [12, 13, 14],
+                        "health": 90
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [7, 6, 5],
+                        "health": 90
+                    }
+                ],
+                "food": [],
+                "hazards": []
+            }),
+            snake_moves: vec!["up".to_string(), "right".to_string()], // Moves for snake1 and snake2
+            expected_state: json!({
+                "width": 5,
+                "height": 5,
+                "snakes": [
+                    {
+                        "id": "snake1",
+                        "body": [7, 12, 13],
+                        "health": 0 // Collides with snake2's body
+                    },
+                    {
+                        "id": "snake2",
+                        "body": [8, 7, 6],
+                        "health": 89
+                    }
+                ],
+                "food": [],
+                "hazards": []
+            }),
+        },
     ]
 }
 
@@ -200,8 +335,11 @@ fn test_game_state_simulation() {
         println!("{}", visualize_game_state(&game_state));
 
         // Compare actual state to expected state
-        let actual_state_json = visualize_game_state(&game_state);
-        let expected_state_json = visualize_game_state(&expected_game_state);
+        let actual_state_json =
+            serde_json::to_value(&game_state).expect("Failed to serialize actual GameState");
+        let expected_state_json = serde_json::to_value(&expected_game_state)
+            .expect("Failed to serialize expected GameState");
+
         assert_eq!(
             actual_state_json, expected_state_json,
             "Test case '{}' failed",

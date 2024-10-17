@@ -15,7 +15,7 @@ pub fn calculate_snake_control(game_state: &GameState) -> Vec<i8> {
         let head = snake.body[0].index;
 
         // Skip if the snake is out of bounds
-        if head == usize::MAX {
+        if head == usize::MAX || snake.health == 0 {
             continue;
         }
 

@@ -21,6 +21,9 @@ pub fn visualize_game_state(game_state: &GameState) -> String {
 
     // Place snakes
     for (i, snake) in game_state.snakes.iter().enumerate() {
+        if snake.health == 0 {
+            continue;
+        }
         let snake_char = (b'a' + i as u8) as char;
         let head_char = snake_char.to_ascii_uppercase();
 

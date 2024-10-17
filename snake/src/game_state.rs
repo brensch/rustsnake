@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct Position {
     pub index: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Snake {
     pub id: String,
     pub body: VecDeque<Position>,
@@ -25,7 +27,7 @@ impl Snake {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GameState {
     pub width: usize,
     pub height: usize,
@@ -107,7 +109,7 @@ impl GameState {
         let mut eaten_food = Vec::new();
         let mut snakes_to_kill = HashSet::new();
 
-        // Check for out-of-bounds, dead snakes and health depletion
+        // Check for out-of-bounds, dead snakes, and health depletion
         for (i, snake) in self.snakes.iter().enumerate() {
             if snake.health == 0 {
                 continue; // Already dead
@@ -162,26 +164,34 @@ impl GameState {
             head_positions.entry(head_index).or_default().push(i);
         }
 
-        // Handle head-on collisions
-        for snakes_at_position in head_positions.values() {
-            if snakes_at_position.len() > 1 {
-                // Multiple snakes at the same position
-                // Get the maximum length among these snakes
-                let lengths: Vec<usize> = snakes_at_position
-                    .iter()
-                    .map(|&i| self.snakes[i].length())
-                    .collect();
-                let max_length = *lengths.iter().max().unwrap();
-                let all_same_length = lengths.iter().all(|&l| l == max_length);
+        // Handle head-on collisions (including passing through each other's heads)
+        for i in 0..self.snakes.len() {
+            if self.snakes[i].health == 0 {
+                continue;
+            }
 
-                for &i in snakes_at_position {
-                    if all_same_length {
-                        // All snakes have the same length, all die
-                        snakes_to_kill.insert(i);
-                    } else if self.snakes[i].length() < max_length {
-                        // Snake is shorter than the longest snake, dies
-                        snakes_to_kill.insert(i);
-                    }
+            let snake_i_head = self.snakes[i].head().index;
+
+            for j in (i + 1)..self.snakes.len() {
+                if self.snakes[j].health == 0 {
+                    continue;
+                }
+
+                let snake_j_head = self.snakes[j].head().index;
+
+                // Case 1: Both heads land on the same square
+                if snake_i_head == snake_j_head {
+                    self.handle_head_collision(&vec![i, j], &mut snakes_to_kill);
+                    continue;
+                }
+
+                // Case 2: Heads pass through each other's necks
+                let snake_i_neck = self.snakes[i].body.get(1).map(|p| p.index);
+                let snake_j_neck = self.snakes[j].body.get(1).map(|p| p.index);
+
+                if snake_i_neck == Some(snake_j_head) && snake_j_neck == Some(snake_i_head) {
+                    // They swapped head positions (passed through each other's necks)
+                    self.handle_head_collision(&vec![i, j], &mut snakes_to_kill);
                 }
             }
         }
@@ -222,6 +232,30 @@ impl GameState {
         // Mutate the snakes' health after all computations
         for &i in &snakes_to_kill {
             self.snakes[i].health = 0;
+        }
+    }
+
+    fn handle_head_collision(
+        &self,
+        snakes_at_position: &[usize],
+        snakes_to_kill: &mut HashSet<usize>,
+    ) {
+        // Determine the maximum length among these snakes
+        let lengths: Vec<usize> = snakes_at_position
+            .iter()
+            .map(|&i| self.snakes[i].length())
+            .collect();
+        let max_length = *lengths.iter().max().unwrap();
+        let all_same_length = lengths.iter().all(|&l| l == max_length);
+
+        for &i in snakes_at_position {
+            if all_same_length {
+                // All snakes have the same length, all die
+                snakes_to_kill.insert(i);
+            } else if self.snakes[i].length() < max_length {
+                // Snake is shorter than the longest snake, dies
+                snakes_to_kill.insert(i);
+            }
         }
     }
 
