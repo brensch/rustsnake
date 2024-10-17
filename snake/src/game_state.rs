@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
@@ -50,11 +50,16 @@ impl GameState {
             return;
         }
 
-        let width = self.width;
-        let height = self.height;
-        let board_size = width * height;
+        let snake = &mut self.snakes[snake_index];
+        if snake.health == 0 {
+            // Dead snakes do not move
+            return;
+        }
 
-        let head_index = self.snakes[snake_index].head().index;
+        let width = self.width;
+        let board_size = width * self.height;
+
+        let head_index = snake.head().index;
 
         // If the snake is already out of bounds, no need to move it
         if head_index == usize::MAX {
@@ -92,8 +97,7 @@ impl GameState {
             }
         };
 
-        // Update snake
-        let snake = &mut self.snakes[snake_index];
+        // Update snake's head position and health
         snake.body.push_front(Position { index: new_index });
         snake.body.pop_back();
         snake.health = snake.health.saturating_sub(1);
@@ -101,28 +105,24 @@ impl GameState {
 
     pub fn resolve_collisions(&mut self) {
         let mut eaten_food = Vec::new();
-        let mut dead_snakes_flags = vec![false; self.snakes.len()];
+        let mut snakes_to_kill = HashSet::new();
 
-        // First pass: check for out-of-bounds and health depletion
+        // Check for out-of-bounds, dead snakes and health depletion
         for (i, snake) in self.snakes.iter().enumerate() {
-            let head = snake.head();
-
-            // Out-of-bounds check
-            if head.index == usize::MAX {
-                dead_snakes_flags[i] = true;
-                continue;
+            if snake.health == 0 {
+                continue; // Already dead
             }
 
-            // Health depletion
-            if snake.health == 0 {
-                dead_snakes_flags[i] = true;
-                continue;
+            let head = snake.head();
+            if head.index == usize::MAX {
+                // Snake moved out of bounds
+                snakes_to_kill.insert(i);
             }
         }
 
         // Food consumption and hazard damage
         for (i, snake) in self.snakes.iter_mut().enumerate() {
-            if dead_snakes_flags[i] {
+            if snake.health == 0 {
                 continue; // Skip dead snakes
             }
 
@@ -142,7 +142,7 @@ impl GameState {
             if self.hazards.contains(&head) {
                 snake.health = snake.health.saturating_sub(15);
                 if snake.health == 0 {
-                    dead_snakes_flags[i] = true;
+                    snakes_to_kill.insert(i);
                 }
             }
         }
@@ -152,41 +152,77 @@ impl GameState {
             self.food.swap_remove(index);
         }
 
-        // Check for collisions
-        for i in 0..self.snakes.len() {
-            if dead_snakes_flags[i] {
-                continue; // Skip dead snakes
-            }
-
-            let head = self.snakes[i].head();
-
-            // Self-collision
-            if self.snakes[i].body.iter().skip(1).any(|&p| p == head) {
-                dead_snakes_flags[i] = true;
+        // Build a map of head positions to snake indices
+        let mut head_positions: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (i, snake) in self.snakes.iter().enumerate() {
+            if snake.health == 0 {
                 continue;
             }
+            let head_index = snake.head().index;
+            head_positions.entry(head_index).or_default().push(i);
+        }
 
-            // Collision with other snakes
-            for j in 0..self.snakes.len() {
-                if i == j || dead_snakes_flags[j] {
-                    continue;
-                }
-                if self.snakes[j].body.contains(&head) {
-                    if self.snakes[i].length() <= self.snakes[j].length() {
-                        dead_snakes_flags[i] = true;
+        // Handle head-on collisions
+        for snakes_at_position in head_positions.values() {
+            if snakes_at_position.len() > 1 {
+                // Multiple snakes at the same position
+                // Get the maximum length among these snakes
+                let lengths: Vec<usize> = snakes_at_position
+                    .iter()
+                    .map(|&i| self.snakes[i].length())
+                    .collect();
+                let max_length = *lengths.iter().max().unwrap();
+                let all_same_length = lengths.iter().all(|&l| l == max_length);
+
+                for &i in snakes_at_position {
+                    if all_same_length {
+                        // All snakes have the same length, all die
+                        snakes_to_kill.insert(i);
+                    } else if self.snakes[i].length() < max_length {
+                        // Snake is shorter than the longest snake, dies
+                        snakes_to_kill.insert(i);
                     }
-                    break;
                 }
             }
         }
 
-        // Remove dead snakes using retain
-        let mut index = 0;
-        self.snakes.retain(|_| {
-            let keep = !dead_snakes_flags[index];
-            index += 1;
-            keep
-        });
+        // Handle collisions with bodies and self-collisions
+        let body_positions: HashMap<usize, usize> = self
+            .snakes
+            .iter()
+            .enumerate()
+            .filter(|(_, snake)| snake.health > 0)
+            .flat_map(|(i, snake)| {
+                snake.body.iter().skip(1).map(move |pos| (pos.index, i)) // Map body position to snake index
+            })
+            .collect();
+
+        for (i, snake) in self.snakes.iter().enumerate() {
+            if snake.health == 0 {
+                continue; // Skip dead snakes
+            }
+            let head = snake.head();
+
+            // Self-collision
+            if snake.body.iter().skip(1).any(|&p| p == head) {
+                // Snake collides with its own body
+                snakes_to_kill.insert(i);
+                continue;
+            }
+
+            // Collision with other snakes' bodies
+            if let Some(&other_snake_index) = body_positions.get(&head.index) {
+                if other_snake_index != i {
+                    // Snake collides with another snake's body
+                    snakes_to_kill.insert(i);
+                }
+            }
+        }
+
+        // Mutate the snakes' health after all computations
+        for &i in &snakes_to_kill {
+            self.snakes[i].health = 0;
+        }
     }
 
     pub fn add_snake(&mut self, id: String, body: Vec<usize>, health: u8) {
@@ -214,10 +250,13 @@ impl GameState {
         }
 
         let snake = &self.snakes[snake_index];
+        if snake.health == 0 {
+            return Vec::new(); // Dead snakes have no safe moves
+        }
+
         let head_index = snake.head().index;
         let width = self.width;
-        let height = self.height;
-        let board_size = width * height;
+        let board_size = width * self.height;
         let mut safe_moves = Vec::new();
 
         // If the snake is already out of bounds, it has no safe moves
@@ -274,8 +313,6 @@ impl GameState {
     }
 
     fn is_safe_move(&self, position: Position, snake_index: usize) -> bool {
-        // Position is already guaranteed to be within bounds
-
         let snake = &self.snakes[snake_index];
 
         // Check for self-collision with neck
@@ -285,7 +322,7 @@ impl GameState {
 
         // Check for collisions with other snakes
         for (i, other_snake) in self.snakes.iter().enumerate() {
-            if i == snake_index {
+            if i == snake_index || other_snake.health == 0 {
                 continue;
             }
             if other_snake.body.contains(&position) {

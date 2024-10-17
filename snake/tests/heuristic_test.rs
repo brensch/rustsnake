@@ -100,7 +100,7 @@ fn create_test_cases() -> Vec<TestCase> {
                     },
                     {
                         "id": "snake2",
-                        "body": [],
+                        "body": [4,5,6],
                         "health": 0
                     },
                     {

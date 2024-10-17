@@ -7,12 +7,16 @@ pub fn visualize_game_state(game_state: &GameState) -> String {
 
     // Place food
     for food in &game_state.food {
-        grid[food.index] = '*';
+        if food.index < grid.len() {
+            grid[food.index] = '*';
+        }
     }
 
     // Place hazards
     for hazard in &game_state.hazards {
-        grid[hazard.index] = '!';
+        if hazard.index < grid.len() {
+            grid[hazard.index] = '!';
+        }
     }
 
     // Place snakes
@@ -21,7 +25,10 @@ pub fn visualize_game_state(game_state: &GameState) -> String {
         let head_char = snake_char.to_ascii_uppercase();
 
         for (j, &Position { index }) in snake.body.iter().enumerate() {
-            grid[index] = if j == 0 { head_char } else { snake_char };
+            // Skip if the snake's position is out of bounds (i.e., usize::MAX)
+            if index != usize::MAX && index < grid.len() {
+                grid[index] = if j == 0 { head_char } else { snake_char };
+            }
         }
     }
 
@@ -42,9 +49,11 @@ pub fn json_to_game_state(json: &serde_json::Value) -> GameState {
             .as_array()
             .unwrap()
             .iter()
-            .map(|index| Position { index: index.as_u64().unwrap() as usize })
+            .map(|index| Position {
+                index: index.as_u64().unwrap() as usize,
+            })
             .collect();
-        
+
         game.snakes.push(Snake {
             id: snake_json["id"].as_str().unwrap().to_string(),
             body: body.into(),
@@ -56,14 +65,18 @@ pub fn json_to_game_state(json: &serde_json::Value) -> GameState {
         .as_array()
         .unwrap()
         .iter()
-        .map(|index| Position { index: index.as_u64().unwrap() as usize })
+        .map(|index| Position {
+            index: index.as_u64().unwrap() as usize,
+        })
         .collect();
 
     game.hazards = json["hazards"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|index| Position { index: index.as_u64().unwrap() as usize })
+        .map(|index| Position {
+            index: index.as_u64().unwrap() as usize,
+        })
         .collect();
 
     game
