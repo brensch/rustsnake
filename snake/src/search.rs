@@ -70,14 +70,10 @@ impl MCTS {
         loop {
             let expand_result = {
                 let node = current.lock().unwrap_or_else(|e| e.into_inner());
-                if node.children.is_empty() {
-                    if node.visits == 0 {
-                        true
-                    } else if Self::is_terminal(&node.game_state) {
-                        false
-                    } else {
-                        true
-                    }
+                if Self::is_terminal(&node.game_state) {
+                    false
+                } else if node.children.is_empty() {
+                    true
                 } else {
                     false
                 }
@@ -85,13 +81,31 @@ impl MCTS {
 
             if expand_result {
                 Self::expand(&current);
+                // Optionally select a child to continue the simulation
+                let selected_child = {
+                    let node = current.lock().unwrap_or_else(|e| e.into_inner());
+                    node.children.first().cloned()
+                };
+                if let Some(child) = selected_child {
+                    current = child;
+                }
                 break;
-            }
+            } else {
+                let node_is_terminal = {
+                    let node = current.lock().unwrap_or_else(|e| e.into_inner());
+                    Self::is_terminal(&node.game_state)
+                };
 
-            let selected_child = Self::select_child(&current, exploration_constant);
-            match selected_child {
-                Some(child) => current = child,
-                None => break,
+                if node_is_terminal {
+                    // Node is terminal; cannot proceed further
+                    break;
+                }
+
+                let selected_child = Self::select_child(&current, exploration_constant);
+                match selected_child {
+                    Some(child) => current = child,
+                    None => break,
+                }
             }
         }
         Self::back_propagate(&current);
@@ -102,20 +116,23 @@ impl MCTS {
         let mut node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
         let num_snakes = node_lock.game_state.snakes.len();
 
-        // Collect safe moves for each snake
         let mut snakes_safe_moves = Vec::new();
         for snake_index in 0..num_snakes {
-            let safe_moves = node_lock.game_state.get_safe_moves(snake_index);
-            // Represent moves as Option<Direction>; if no safe moves, use None
-            let moves_with_option: Vec<Option<Direction>> = if safe_moves.is_empty() {
-                vec![None] // Snake has no safe moves
+            let snake = &node_lock.game_state.snakes[snake_index];
+            if snake.health > 0 {
+                let safe_moves = node_lock.game_state.get_safe_moves(snake_index);
+                let moves_with_option: Vec<Option<Direction>> = if safe_moves.is_empty() {
+                    vec![None] // Snake has no safe moves
+                } else {
+                    safe_moves.into_iter().map(Some).collect()
+                };
+                snakes_safe_moves.push(moves_with_option);
             } else {
-                safe_moves.into_iter().map(Some).collect()
-            };
-            snakes_safe_moves.push(moves_with_option);
+                // Dead snake: only possible move is None
+                snakes_safe_moves.push(vec![None]);
+            }
         }
 
-        // Generate all combinations of moves
         let move_combinations = cartesian_product(&snakes_safe_moves);
 
         for moves in move_combinations {
@@ -126,6 +143,7 @@ impl MCTS {
                 }
             }
             new_state.resolve_collisions();
+            new_state.snakes.retain(|s| s.health > 0);
 
             let new_node = Node {
                 game_state: new_state,
@@ -195,7 +213,8 @@ impl MCTS {
     }
 
     fn is_terminal(game_state: &GameState) -> bool {
-        game_state.snakes.len() <= 1
+        let alive_snakes = game_state.snakes.iter().filter(|s| s.health > 0).count();
+        alive_snakes <= 1
     }
 
     pub fn get_best_move_for_snake(&self, our_snake_id: &str) -> Option<Direction> {
@@ -210,7 +229,7 @@ impl MCTS {
             if let Some(child) = best_child {
                 let child_lock = child.lock().unwrap_or_else(|e| e.into_inner());
 
-                // Find the index of our snake in the parent game state
+                // Find our snake in the parent game state
                 let our_snake_index = root
                     .game_state
                     .snakes
@@ -218,11 +237,9 @@ impl MCTS {
                     .position(|s| s.id == our_snake_id);
 
                 if let Some(index) = our_snake_index {
-                    // Since snakes may die, check if our snake is still alive in the child node
-                    if index < child_lock.moves.len() {
-                        if let Some(direction) = child_lock.moves[index] {
-                            return Some(direction);
-                        }
+                    // Check if our snake is still alive
+                    if let Some(direction) = child_lock.moves.get(index).and_then(|&dir| dir) {
+                        return Some(direction);
                     }
                 }
             }

@@ -103,7 +103,7 @@ fn test_mcts_move_selection() {
         println!("{}", visualize_game_state(&game_state));
 
         let mut mcts = MCTS::new(game_state.clone());
-        let duration = Duration::from_millis(600); // Adjust as needed
+        let duration = Duration::from_millis(400); // Adjust as needed
         let num_threads = 4; // Adjust as needed
 
         mcts.run(duration, num_threads);
