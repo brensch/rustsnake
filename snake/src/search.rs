@@ -143,7 +143,10 @@ impl MCTS {
                 }
             }
             new_state.resolve_collisions();
-            new_state.snakes.retain(|s| s.health > 0);
+
+            // **Removed the line that removes dead snakes**
+            // Do not remove dead snakes to keep indices consistent
+            // new_state.snakes.retain(|s| s.health > 0);
 
             let new_node = Node {
                 game_state: new_state,

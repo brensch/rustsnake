@@ -149,7 +149,10 @@ impl GameState {
             }
         }
 
+        // **Modified section to handle duplicate food indices**
         // Remove eaten food
+        eaten_food.sort_unstable();
+        eaten_food.dedup();
         for index in eaten_food.into_iter().rev() {
             self.food.swap_remove(index);
         }

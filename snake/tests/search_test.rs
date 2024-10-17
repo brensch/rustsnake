@@ -2,6 +2,7 @@
 
 use battlesnake::game_state::{Direction, GameState};
 use battlesnake::search::{Node, MCTS};
+use battlesnake::tree::generate_most_visited_path_with_alternatives_html_tree;
 use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -103,7 +104,7 @@ fn test_mcts_move_selection() {
         println!("{}", visualize_game_state(&game_state));
 
         let mut mcts = MCTS::new(game_state.clone());
-        let duration = Duration::from_millis(400); // Adjust as needed
+        let duration = Duration::from_millis(40); // Adjust as needed
         let num_threads = 4; // Adjust as needed
 
         mcts.run(duration, num_threads);
@@ -128,6 +129,11 @@ fn test_mcts_move_selection() {
 
         println!("Calculated best move: {:?}", best_move);
         println!("Expected move: {:?}", case.expected_move);
+
+        let root_node = mcts.root.clone();
+        if let Err(e) = generate_most_visited_path_with_alternatives_html_tree(&root_node) {
+            eprintln!("Error generating move tree: {:?}", e);
+        }
 
         // Since MCTS is stochastic, we'll check if the move is valid
         if let Some(our_snake_index) = game_state.snakes.iter().position(|s| s.id == case.snake_id)
@@ -170,7 +176,7 @@ fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
     let mut max_path = Vec::new();
 
     for child in &node_lock.children {
-        let mut path = find_longest_path(child);
+        let path = find_longest_path(child);
         if path.len() > max_path.len() {
             max_path = path;
         }
