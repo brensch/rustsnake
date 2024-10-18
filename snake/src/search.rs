@@ -238,6 +238,8 @@ impl MCTS {
     pub fn get_best_move_for_snake(&self, our_snake_id: &str) -> Option<Direction> {
         let root = self.root.lock().unwrap_or_else(|e| e.into_inner());
 
+        println!("Root snakes count: {}", root.game_state.snakes.len());
+
         if !root.children.is_empty() {
             let best_child = root
                 .children
@@ -247,6 +249,8 @@ impl MCTS {
             if let Some(child) = best_child {
                 let child_lock = child.lock().unwrap_or_else(|e| e.into_inner());
 
+                println!("Child moves length: {}", child_lock.moves.len());
+
                 // Find our snake in the parent game state
                 let our_snake_index = root
                     .game_state
@@ -254,10 +258,14 @@ impl MCTS {
                     .iter()
                     .position(|s| s.id == our_snake_id);
 
+                println!("Our snake index: {:?}", our_snake_index);
+
                 if let Some(index) = our_snake_index {
                     // Check if our snake is still alive
                     if let Some(direction) = child_lock.moves.get(index).and_then(|&dir| dir) {
                         return Some(direction);
+                    } else {
+                        println!("No move found for our snake at index {}", index);
                     }
                 }
             }

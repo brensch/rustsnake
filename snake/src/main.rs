@@ -48,12 +48,37 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 
     mcts.run(duration, num_threads);
 
+    // In your move handler after running MCTS
+    println!(
+        "Root node game state:\n{}",
+        visualize_game_state(&mcts.root.lock().unwrap().game_state)
+    );
+    println!("Root node visits: {}", mcts.root.lock().unwrap().visits);
+
+    if let Some(best_child) = mcts
+        .root
+        .lock()
+        .unwrap()
+        .children
+        .iter()
+        .max_by_key(|child| child.lock().unwrap().visits)
+    {
+        let best_child_lock = best_child.lock().unwrap();
+        println!(
+            "Best child game state:\n{}",
+            visualize_game_state(&best_child_lock.game_state)
+        );
+        println!("Best child visits: {}", best_child_lock.visits);
+        println!("Best child moves: {:?}", best_child_lock.moves);
+    }
+
     // Get the best move for our snake
     let our_snake_id = &info.you.id;
     if let Some(our_move) = mcts.get_best_move_for_snake(our_snake_id) {
         let chosen_move = match our_move {
-            Direction::Up => "up",
-            Direction::Down => "down",
+            // our board is upside down so flip up and down.
+            Direction::Up => "down",
+            Direction::Down => "up",
             Direction::Left => "left",
             Direction::Right => "right",
         };
