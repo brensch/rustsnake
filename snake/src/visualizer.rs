@@ -84,3 +84,19 @@ pub fn json_to_game_state(json: &serde_json::Value) -> GameState {
 
     game
 }
+
+pub fn visualize_control(control: &[i8], width: usize, height: usize) -> String {
+    control
+        .chunks(width)
+        .map(|row| {
+            row.iter()
+                .map(|&c| match c {
+                    -1 => '.',
+                    0..=9 => std::char::from_digit(c as u32, 10).unwrap(),
+                    _ => '#',
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}

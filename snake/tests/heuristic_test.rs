@@ -1,7 +1,7 @@
 // File: tests/heuristic_test.rs
 
 use battlesnake::heuristic::{calculate_control_percentages, calculate_snake_control};
-use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
+use battlesnake::visualizer::{json_to_game_state, visualize_control, visualize_game_state};
 use serde_json::json;
 
 struct TestCase {
@@ -138,22 +138,6 @@ fn create_test_cases() -> Vec<TestCase> {
         },
         // Add more test cases as needed
     ]
-}
-
-fn visualize_control(control: &[i8], width: usize, height: usize) -> String {
-    control
-        .chunks(width)
-        .map(|row| {
-            row.iter()
-                .map(|&c| match c {
-                    -1 => '.',
-                    0..=9 => std::char::from_digit(c as u32, 10).unwrap(),
-                    _ => '#',
-                })
-                .collect::<String>()
-        })
-        .collect::<Vec<String>>()
-        .join("\n")
 }
 
 #[test]

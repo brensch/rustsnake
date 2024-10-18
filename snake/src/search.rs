@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 pub struct Node {
     pub game_state: GameState,
     pub value: Vec<f32>,
+    pub total_value: Vec<f32>, // Accumulated values for each player
     pub visits: u32,
     pub children: Vec<Arc<Mutex<Node>>>,
     pub moves: Vec<Option<Direction>>, // Moves made to reach this node
@@ -23,10 +24,12 @@ pub struct MCTS {
 
 impl MCTS {
     pub fn new(initial_state: GameState) -> Self {
+        let number_of_players = initial_state.snakes.len();
         MCTS {
             root: Arc::new(Mutex::new(Node {
                 game_state: initial_state,
-                value: Vec::new(),
+                value: vec![0.0; number_of_players],
+                total_value: vec![0.0; number_of_players],
                 visits: 0,
                 children: Vec::new(),
                 moves: Vec::new(), // Root node has no moves
@@ -144,13 +147,15 @@ impl MCTS {
             }
             new_state.resolve_collisions();
 
-            // **Removed the line that removes dead snakes**
             // Do not remove dead snakes to keep indices consistent
             // new_state.snakes.retain(|s| s.health > 0);
 
+            let number_of_players = node_lock.game_state.snakes.len();
+
             let new_node = Node {
                 game_state: new_state,
-                value: Vec::new(),
+                value: vec![0.0; number_of_players],
+                total_value: vec![0.0; number_of_players],
                 visits: 0,
                 children: Vec::new(),
                 moves: moves.clone(),
@@ -187,23 +192,33 @@ impl MCTS {
         if node.visits == 0 {
             return f32::INFINITY;
         }
-        let exploitation =
-            node.value.iter().sum::<f32>() / (node.value.len() as f32 * node.visits as f32);
+        let average_value = node.value.iter().sum::<f32>() / node.value.len() as f32;
         let exploration = ((2.0 * parent_visits.ln()) / node.visits as f32).sqrt();
-        exploitation + exploration_constant * exploration
+        average_value + exploration_constant * exploration
     }
 
     fn back_propagate(node: &Arc<Mutex<Node>>) {
         let mut current = Arc::clone(node);
+        let control_percentages = {
+            let node_lock = current.lock().unwrap_or_else(|e| e.into_inner());
+            heuristic::calculate_control_percentages(&node_lock.game_state)
+        };
+
         loop {
             let mut node = current.lock().unwrap_or_else(|e| e.into_inner());
             node.visits += 1;
 
-            // Calculate control percentages
-            let control_percentages = heuristic::calculate_control_percentages(&node.game_state);
+            // Accumulate control percentages
+            for (i, val) in control_percentages.iter().enumerate() {
+                node.total_value[i] += val;
+            }
 
-            // Update node.value
-            node.value = control_percentages;
+            // Update node.value (average value per player)
+            node.value = node
+                .total_value
+                .iter()
+                .map(|&v| v / node.visits as f32)
+                .collect();
 
             match node.parent.upgrade() {
                 Some(parent) => {
