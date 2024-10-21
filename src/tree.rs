@@ -51,6 +51,7 @@ impl TreeNode {
         let id = format!("Node_{:p}", node.as_ptr());
         let body = visualize_game_state(&node_ref.game_state);
         let game_state = node_ref.game_state.clone();
+        let terminal = node_ref.is_terminal;
 
         let ucb = calculate_ucb_value(&node_ref, parent_weak.as_ref(), exploration_constant);
 
@@ -92,8 +93,8 @@ impl TreeNode {
             .join("\n");
 
         let body_with_extra_text = format!(
-            "{}\nVisits: {}\nUCB: {:.2}\nTotal Scores:\n{}\nHeuristics:\n{}\nControl Layout:\n{}",
-            body, visits, ucb, total_scores, heuristics, control_visualization
+            "{}\nVisits: {}\nUCB: {:.2}\nTotal Scores:\n{}\nHeuristics:\n{}\nControl Layout:\n{}\nTerminal:{}",
+            body, visits, ucb, total_scores, heuristics, control_visualization, terminal,
         );
 
         TreeNode {

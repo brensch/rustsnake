@@ -18,6 +18,29 @@ struct TestCase {
 
 fn create_test_cases() -> Vec<TestCase> {
     vec![
+        // TestCase {
+        //     name: "Simple two snake scenario",
+        //     input: json!({
+        //         "width": 11,
+        //         "height": 11,
+        //         "snakes": [
+        //             {
+        //                 "id": "snake1",
+        //                 "body": [0, 1, 2],
+        //                 "health": 100
+        //             },
+        //             {
+        //                 "id": "snake2",
+        //                 "body": [24, 23, 22],
+        //                 "health": 100
+        //             }
+        //         ],
+        //         "food": [],
+        //         "hazards": []
+        //     }),
+        //     snake_id: "snake1",
+        //     expected_move: Some(Direction::Down),
+        // },
         TestCase {
             name: "Simple two snake scenario",
             input: json!({
@@ -26,12 +49,12 @@ fn create_test_cases() -> Vec<TestCase> {
                 "snakes": [
                     {
                         "id": "snake1",
-                        "body": [0, 1, 2],
+                        "body": [3,2,1],
                         "health": 100
                     },
                     {
                         "id": "snake2",
-                        "body": [24, 23, 22],
+                        "body": [5,6,7,8],
                         "health": 100
                     }
                 ],

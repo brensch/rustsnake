@@ -1,5 +1,5 @@
 use crate::game_state::{Direction, GameState};
-use crate::heuristic::{calculate_control_percentages, calculate_snake_control};
+use crate::heuristic::calculate_control_percentages;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
@@ -14,8 +14,8 @@ pub struct Node {
     pub parent: Option<Weak<RefCell<Node>>>,
     pub current_player: usize,
     pub num_snakes: usize,
-    pub heuristic: Option<Vec<f32>>, // New field to store the original heuristic
-    pub is_terminal: bool,           // New field to indicate terminal state
+    pub heuristic: Option<Vec<f32>>, // Stores the heuristic at the leaf node
+    pub is_terminal: bool,           // Indicates whether this node is terminal
 }
 
 pub struct MCTS {
@@ -60,9 +60,7 @@ impl MCTS {
         loop {
             let expand_result = {
                 let node_ref = current.borrow();
-                if node_ref.is_terminal {
-                    false
-                } else if node_ref.children.is_empty() {
+                if node_ref.children.is_empty() {
                     true
                 } else {
                     false
@@ -93,6 +91,12 @@ impl MCTS {
     }
 
     fn expand(&self, node: &Rc<RefCell<Node>>) {
+        let node_ref = node.borrow();
+        if node_ref.is_terminal {
+            return; // Do not expand terminal nodes
+        }
+        drop(node_ref);
+
         let mut node_ref = node.borrow_mut();
         let current_player = node_ref.current_player;
         let num_snakes = node_ref.num_snakes;
@@ -185,7 +189,6 @@ impl MCTS {
         node_ref
             .children
             .values()
-            .filter(|child| !child.borrow().is_terminal) // Skip terminal nodes
             .max_by(|a, b| {
                 let a_ref = a.borrow();
                 let b_ref = b.borrow();
@@ -213,10 +216,32 @@ impl MCTS {
     fn back_propagate(&self, node: &Rc<RefCell<Node>>) {
         let mut current = Rc::clone(node);
 
-        // Calculate the heuristic score for the current game state and convert to Vec<f32>
+        // Determine the scores
         let heuristic = {
             let node_ref = current.borrow();
-            calculate_control_percentages(&node_ref.game_state)
+            if node_ref.is_terminal {
+                // Assign scores based on game outcome
+                let mut scores = vec![0.0; node_ref.num_snakes];
+                let alive_snakes: Vec<_> = node_ref
+                    .game_state
+                    .snakes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.health > 0)
+                    .collect();
+
+                if alive_snakes.len() == 1 {
+                    let (winner_index, _) = alive_snakes[0];
+                    scores[winner_index] = 1.0;
+                } else {
+                    // All snakes are dead; assign neutral scores or penalize as needed
+                    // For this example, we'll leave scores at 0.0
+                }
+                scores
+            } else {
+                // Use heuristic function for non-terminal states
+                calculate_control_percentages(&node_ref.game_state)
+            }
         };
 
         // At the leaf node, store the heuristic
