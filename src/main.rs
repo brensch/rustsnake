@@ -46,7 +46,7 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
     let num_threads = num_cpus::get();
     println!("Number of threads: {}", num_threads);
 
-    mcts.run(duration, num_threads);
+    mcts.run(duration);
 
     // In your move handler after running MCTS
     println!(
@@ -69,7 +69,7 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
             visualize_game_state(&best_child_lock.game_state)
         );
         println!("Best child visits: {}", best_child_lock.visits);
-        println!("Best child moves: {:?}", best_child_lock.moves);
+        // println!("Best child moves: {:?}", best_child_lock.moves);
     }
 
     // Get the best move for our snake

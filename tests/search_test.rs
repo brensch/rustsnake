@@ -108,7 +108,7 @@ fn test_mcts_move_selection() {
         let duration = Duration::from_millis(400); // Adjust as needed
         let num_threads = 4; // Adjust as needed
 
-        mcts.run(duration, num_threads);
+        mcts.run(duration);
 
         // Find the longest path
         let root = mcts.root.clone();
@@ -119,7 +119,7 @@ fn test_mcts_move_selection() {
             let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
             println!("Step {}:", i);
             println!("{}", visualize_game_state(&node_lock.game_state));
-            println!("Moves: {:?}", node_lock.moves);
+            // println!("Moves: {:?}", node_lock.moves);
             println!("Visits: {}", node_lock.visits);
             println!("Value: {:?}", node_lock.value);
             println!("---");
