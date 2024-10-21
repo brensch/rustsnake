@@ -206,7 +206,7 @@ const TreeViewer: React.FC = () => {
             id: `e${currentNode.id}-${child.id}`,
             source: currentNode.id,
             target: child.id,
-            label: `UCB: ${child.ucb.toFixed(5)}`, // Add UCB as label on the edge
+            label: `UCB: ${child.ucb?.toFixed(5)}`, // Add UCB as label on the edge
           })
         })
 
@@ -274,7 +274,7 @@ const TreeViewer: React.FC = () => {
         id: `e${parentId}-${child.id}`,
         source: parentId,
         target: child.id,
-        label: `UCB: ${child.ucb.toFixed(5)}`, // Add UCB as label on the edge
+        label: `UCB: ${child.ucb?.toFixed(5)}`, // Add UCB as label on the edge
       }
 
       newNodes.push(newNode)
