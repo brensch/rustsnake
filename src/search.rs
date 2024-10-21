@@ -106,7 +106,7 @@ impl MCTS {
                     break;
                 }
 
-                let selected_child = Self::select_child(&current, exploration_constant);
+                let selected_child = Self::select_best_joint_move(&current, exploration_constant);
                 match selected_child {
                     Some(child) => current = child,
                     None => break,
@@ -149,9 +149,6 @@ impl MCTS {
             }
             new_state.resolve_collisions();
 
-            // Do not remove dead snakes to keep indices consistent
-            // new_state.snakes.retain(|s| s.health > 0);
-
             let number_of_players = node_lock.game_state.snakes.len();
 
             let new_node = Node {
@@ -169,39 +166,48 @@ impl MCTS {
         }
     }
 
-    fn select_child(
+    fn select_best_joint_move(
         node: &Arc<Mutex<Node>>,
         exploration_constant: f32,
     ) -> Option<Arc<Mutex<Node>>> {
         let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
+
         if node_lock.children.is_empty() {
             return None;
         }
+
+        // Iterate over all children (joint moves) and calculate the UCB for each player
         node_lock
             .children
             .values()
-            .max_by(|a, b| {
-                let a_lock = a.lock().unwrap_or_else(|e| e.into_inner());
-                let b_lock = b.lock().unwrap_or_else(|e| e.into_inner());
-                let a_ucb = Self::ucb_value(&a_lock, node_lock.visits as f32, exploration_constant);
-                let b_ucb = Self::ucb_value(&b_lock, node_lock.visits as f32, exploration_constant);
-                a_ucb
-                    .partial_cmp(&b_ucb)
+            .max_by(|child_a, child_b| {
+                let a_lock = child_a.lock().unwrap_or_else(|e| e.into_inner());
+                let b_lock = child_b.lock().unwrap_or_else(|e| e.into_inner());
+
+                // Calculate UCB for each player in both child nodes
+                let a_ucb_total =
+                    Self::joint_ucb_value(&a_lock, node_lock.visits as f32, exploration_constant);
+                let b_ucb_total =
+                    Self::joint_ucb_value(&b_lock, node_lock.visits as f32, exploration_constant);
+
+                // Compare the total UCB values of the two children
+                a_ucb_total
+                    .partial_cmp(&b_ucb_total)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
             .cloned()
     }
 
-    fn ucb_value(node: &Node, parent_visits: f32, exploration_constant: f32) -> f32 {
-        if node.visits == 0 {
-            return f32::INFINITY;
-        }
+    fn joint_ucb_value(node: &Node, parent_visits: f32, exploration_constant: f32) -> f32 {
+        // Calculate the UCB for each player independently and return a total score based on individual maximization
         let mut total_ucb = 0.0;
-        for i in 0..node.value.len() {
-            let x_bar = node.value[i]; // Average value per player i
-            let exploration = ((2.0 * parent_visits.ln()) / node.visits as f32).sqrt();
-            let vi = x_bar + exploration_constant * exploration;
-            total_ucb += vi;
+        for player_index in 0..node.value.len() {
+            let avg_score = node.value[player_index]; // Average score for player `i`
+            let exploration_term = ((2.0 * parent_visits.ln()) / node.visits as f32).sqrt();
+            let ucb_for_player = avg_score + exploration_constant * exploration_term;
+
+            // We want to maximize the UCB for each player individually
+            total_ucb += ucb_for_player;
         }
         total_ucb
     }
