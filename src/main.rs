@@ -2,7 +2,8 @@ use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use rand::seq::SliceRandom;
 use serde_json::json;
 use std::env;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 mod battlesnake_api;
@@ -38,39 +39,48 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
     println!("Turn: {}", info.turn);
     println!("Game state:\n{}", visualize_game_state(&game_state));
 
-    let mut mcts = MCTS::new(game_state.clone());
+    let mcts = MCTS::new(game_state.clone());
 
     let duration = Duration::from_millis(400);
     println!("Running MCTS for {} milliseconds", duration.as_millis());
 
-    let root = mcts.run(duration, 12);
+    mcts.run(duration, 12);
 
     println!(
         "Root node game state:\n{}",
-        visualize_game_state(&root.lock().unwrap().game_state)
+        visualize_game_state(&mcts.root.game_state)
     );
-    println!("Root node visits: {}", root.lock().unwrap().visits);
+    println!(
+        "Root node visits: {}",
+        mcts.root.visits.load(Ordering::Relaxed)
+    );
 
-    if let Some((_, best_child)) = root
-        .lock()
-        .unwrap()
-        .children
-        .iter()
-        .max_by_key(|(_, child)| child.lock().unwrap().visits)
-    {
-        let best_child_ref = best_child.lock().unwrap();
-        println!(
-            "Best child game state:\n{}",
-            visualize_game_state(&best_child_ref.game_state)
-        );
-        println!("Best child visits: {}", best_child_ref.visits);
+    if !mcts.root.children.is_empty() {
+        let best_child_entry = mcts
+            .root
+            .children
+            .iter()
+            .max_by_key(|entry| entry.value().visits.load(Ordering::Relaxed));
+
+        if let Some(entry) = best_child_entry {
+            let best_child_node = entry.value();
+            println!(
+                "Best child game state:\n{}",
+                visualize_game_state(&best_child_node.game_state)
+            );
+            println!(
+                "Best child visits: {}",
+                best_child_node.visits.load(Ordering::Relaxed)
+            );
+        }
     }
 
     let our_snake_id = &info.you.id;
     if let Some(our_move) = mcts.get_best_move_for_snake(our_snake_id) {
+        // down and up need to be opposite since our board is flipped
         let chosen_move = match our_move {
-            Direction::Up => "up",
-            Direction::Down => "down",
+            Direction::Up => "down",
+            Direction::Down => "up",
             Direction::Left => "left",
             Direction::Right => "right",
         };

@@ -128,31 +128,35 @@ fn test_mcts_move_selection() {
         println!("Initial game state:");
         println!("{}", visualize_game_state(&game_state));
 
-        let mut mcts = MCTS::new(game_state.clone());
+        let mcts = MCTS::new(game_state.clone());
         let duration = Duration::from_millis(400); // Adjust as needed
 
-        let root = mcts.run(duration, 12);
+        mcts.run(duration, 12);
+
+        let root = &mcts.root;
 
         // Find the longest path
-        let longest_path = find_longest_path(&root);
+        let longest_path = find_longest_path(root);
 
         println!("Longest path in the MCTS tree (from root to leaf):");
         for (i, node) in longest_path.iter().enumerate() {
-            let node_ref = node.lock().unwrap();
             println!("Step {}:", i);
-            println!("{}", visualize_game_state(&node_ref.game_state));
-            println!("Visits: {}", node_ref.visits);
-            // println!("Value: {:?}", node_ref.value);
+            println!("{}", visualize_game_state(&node.game_state));
+            println!(
+                "Visits: {}",
+                node.visits.load(std::sync::atomic::Ordering::Relaxed)
+            );
+            // println!("Value: {:?}", node.value);
             println!("---");
         }
 
         // Get the best move for our snake
-        let best_move = mcts.get_best_move_for_snake(case.snake_id);
+        let best_move = mcts.get_best_move_for_snake(&case.snake_id);
 
         println!("Calculated best move: {:?}", best_move);
         println!("Expected move: {:?}", case.expected_move);
 
-        if let Err(e) = generate_most_visited_path_with_alternatives_html_tree(&root) {
+        if let Err(e) = generate_most_visited_path_with_alternatives_html_tree(root) {
             eprintln!("Error generating move tree: {:?}", e);
         }
 
@@ -188,23 +192,21 @@ fn test_mcts_move_selection() {
 }
 
 // Function to find the longest path from the root to a leaf node
-fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
-    let node_ref = node.lock().unwrap();
-    if node_ref.children.is_empty() {
+fn find_longest_path(node: &Arc<Node>) -> Vec<Arc<Node>> {
+    if node.children.is_empty() {
         return vec![Arc::clone(node)];
     }
 
     let mut max_path = Vec::new();
 
-    // Iterate over the values (child nodes) of the HashMap
-    for child in node_ref.children.values() {
-        let path = find_longest_path(child);
+    // Iterate over the child nodes
+    for child_entry in node.children.iter() {
+        let child_node = child_entry.value();
+        let path = find_longest_path(child_node);
         if path.len() > max_path.len() {
             max_path = path;
         }
     }
-
-    drop(node_ref); // Explicitly drop the lock
 
     let mut full_path = vec![Arc::clone(node)];
     full_path.extend(max_path);

@@ -8,7 +8,8 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Weak};
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -40,19 +41,24 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
-    fn from_node(node: &Arc<Mutex<Node>>, exploration_constant: f32, is_root: bool) -> Self {
-        let node_ref = node.lock().unwrap();
-        let visits = node_ref.visits;
+    fn from_node(node: &Arc<Node>, exploration_constant: f32, is_root: bool) -> Self {
+        // Since we're using atomics, we need to load the values
+        let visits = node.visits.load(Ordering::Relaxed);
 
-        let total_score_clone = node_ref.total_score.clone();
-        let heuristics_clone = node_ref.heuristic.clone();
-        let parent_weak = node_ref.parent.clone();
+        let total_score_clone: Vec<u32> = node
+            .total_score
+            .iter()
+            .map(|score| score.load(Ordering::Relaxed))
+            .collect();
+
+        let heuristics_clone = node.heuristic.clone();
+        let parent_weak = node.parent.clone();
         let id = format!("Node_{:p}", Arc::as_ptr(node));
-        let body = visualize_game_state(&node_ref.game_state);
-        let game_state = node_ref.game_state.clone();
-        let terminal = node_ref.is_terminal;
+        let body = visualize_game_state(&node.game_state);
+        let game_state = node.game_state.clone();
+        let terminal = node.is_terminal;
 
-        let ucb = calculate_ucb_value(&node_ref, parent_weak.as_ref(), exploration_constant);
+        let ucb = calculate_ucb_value(&node, parent_weak.as_ref(), exploration_constant);
 
         let board = game_state_to_board(&game_state);
 
@@ -65,12 +71,8 @@ impl TreeNode {
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                let score = total_score_clone.get(i).cloned().unwrap_or(0.0);
-                format!(
-                    "Player {}: total Score: {:.2}",
-                    i + 1,
-                    score / visits as f32
-                )
+                let score = total_score_clone.get(i).cloned().unwrap_or(0) as f32 / 1000.0;
+                format!("Player {}: total Score: {:.2}", i + 1, score)
             })
             .collect::<Vec<String>>()
             .join("\n");
@@ -131,7 +133,7 @@ fn game_state_to_board(game_state: &GameState) -> Board {
 }
 
 pub fn generate_most_visited_path_with_alternatives_html_tree(
-    root_node: &Arc<Mutex<Node>>,
+    root_node: &Arc<Node>,
 ) -> Result<(), std::io::Error> {
     println!("starting");
     let tree_node = generate_tree_data(root_node);
@@ -159,11 +161,11 @@ pub fn generate_most_visited_path_with_alternatives_html_tree(
     Ok(())
 }
 
-fn generate_tree_data(root_node: &Arc<Mutex<Node>>) -> TreeNode {
-    println!("getting lock");
+fn generate_tree_data(root_node: &Arc<Node>) -> TreeNode {
+    println!("getting data");
 
     let root_tree_node = TreeNode::from_node(root_node, 1.414, true);
-    println!("got lock");
+    println!("got data");
 
     let mut root_tree_node = root_tree_node;
     traverse_and_build_tree(root_node, &mut root_tree_node);
@@ -171,16 +173,17 @@ fn generate_tree_data(root_node: &Arc<Mutex<Node>>) -> TreeNode {
     root_tree_node
 }
 
-fn traverse_and_build_tree(node: &Arc<Mutex<Node>>, tree_node: &mut TreeNode) {
-    let children_nodes: Vec<_> = {
-        let node_ref = node.lock().unwrap();
-        node_ref.children.values().cloned().collect()
-    };
+fn traverse_and_build_tree(node: &Arc<Node>, tree_node: &mut TreeNode) {
+    let children_nodes: Vec<_> = node
+        .children
+        .iter()
+        .map(|entry| entry.value().clone())
+        .collect();
 
     let mut sorted_children = children_nodes;
     sorted_children.sort_by(|a, b| {
-        let a_visits = a.lock().unwrap().visits;
-        let b_visits = b.lock().unwrap().visits;
+        let a_visits = a.visits.load(Ordering::Relaxed);
+        let b_visits = b.visits.load(Ordering::Relaxed);
         b_visits.cmp(&a_visits)
     });
 
@@ -196,23 +199,32 @@ fn traverse_and_build_tree(node: &Arc<Mutex<Node>>, tree_node: &mut TreeNode) {
     }
 }
 
-fn calculate_ucb_value(
-    node: &Node,
-    parent: Option<&Weak<Mutex<Node>>>,
-    exploration_constant: f32,
-) -> f32 {
-    let node_visits = node.visits as f32;
+fn calculate_ucb_value(node: &Node, parent: Option<&Weak<Node>>, exploration_constant: f32) -> f32 {
+    // Load node's visits atomically
+    let node_visits = node.visits.load(Ordering::Relaxed) as f32;
+
     if node_visits == 0.0 {
         return f32::INFINITY;
     }
 
+    // Load parent's visits atomically
     let parent_visits = parent
         .and_then(|weak| weak.upgrade())
-        .map(|rc| rc.lock().unwrap().visits as f32)
+        .map(|arc| arc.visits.load(Ordering::Relaxed) as f32)
         .unwrap_or(1.0);
 
-    let exploitation = node.total_score[node.current_player] / node_visits;
+    // Load the total score atomically and convert it to f32 for calculation
+    let total_score = node.total_score[node.current_player].load(Ordering::Relaxed) as f32;
+
+    // Adjust total_score if you scaled it during backpropagation (e.g., divided by 1000)
+    let adjusted_total_score = total_score / 1000.0;
+
+    // Calculate the exploitation term
+    let exploitation = adjusted_total_score / node_visits;
+
+    // Calculate the exploration term using the exploration constant and parent visits
     let exploration = exploration_constant * ((parent_visits.ln()) / node_visits).sqrt();
 
+    // Return the combined UCB value
     exploitation + exploration
 }
