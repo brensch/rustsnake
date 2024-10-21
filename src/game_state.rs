@@ -301,6 +301,9 @@ impl GameState {
             return safe_moves;
         }
 
+        // Get the snake's neck position if it exists (second position in the body)
+        let neck_index = snake.body.get(1).map(|pos| pos.index);
+
         for &direction in &[
             Direction::Up,
             Direction::Down,
@@ -312,62 +315,47 @@ impl GameState {
                     if head_index >= width {
                         head_index - width
                     } else {
-                        usize::MAX
+                        usize::MAX // Out of bounds
                     }
                 }
                 Direction::Down => {
                     if head_index + width < board_size {
                         head_index + width
                     } else {
-                        usize::MAX
+                        usize::MAX // Out of bounds
                     }
                 }
                 Direction::Left => {
                     if head_index % width != 0 {
                         head_index - 1
                     } else {
-                        usize::MAX
+                        usize::MAX // Out of bounds
                     }
                 }
                 Direction::Right => {
                     if head_index % width != width - 1 {
                         head_index + 1
                     } else {
-                        usize::MAX
+                        usize::MAX // Out of bounds
                     }
                 }
             };
 
-            if new_index != usize::MAX {
-                let new_position = Position { index: new_index };
-                if self.is_safe_move(new_position, snake_index) {
-                    safe_moves.push(direction);
-                }
+            // If the move is out of bounds, skip it
+            if new_index == usize::MAX {
+                continue;
             }
+
+            // Check if the new position is the snake's own neck
+            if neck_index == Some(new_index) {
+                continue; // Skip the neck to avoid moving into it
+            }
+
+            // No need to check for other snake collisions
+            safe_moves.push(direction);
         }
 
         safe_moves
-    }
-
-    fn is_safe_move(&self, position: Position, snake_index: usize) -> bool {
-        let snake = &self.snakes[snake_index];
-
-        // Check for self-collision with neck
-        if snake.body.len() > 1 && position == snake.body[1] {
-            return false;
-        }
-
-        // Check for collisions with other snakes
-        for (i, other_snake) in self.snakes.iter().enumerate() {
-            if i == snake_index || other_snake.health == 0 {
-                continue;
-            }
-            if other_snake.body.contains(&position) {
-                return false;
-            }
-        }
-
-        true
     }
 }
 

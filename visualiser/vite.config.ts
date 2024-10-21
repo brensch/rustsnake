@@ -68,6 +68,7 @@ const treeDataPlugin: Plugin = {
 
             // Validate that the file content matches the TreeNode interface
             if (!isValidTreeNode(treeNode)) {
+              console.log()
               res.statusCode = 400
               return res.end(JSON.stringify({ error: "Invalid TreeNode data" }))
             }
@@ -92,7 +93,6 @@ function isValidTreeNode(node: any): node is TreeNode {
     typeof node.id === "string" &&
     typeof node.body === "string" &&
     typeof node.visits === "number" &&
-    typeof node.avg_score === "number" &&
     typeof node.ucb === "number" &&
     typeof node.isMostVisited === "boolean" &&
     (node.children === undefined || Array.isArray(node.children))

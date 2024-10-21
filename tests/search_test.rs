@@ -5,9 +5,10 @@ use battlesnake::search::{Node, MCTS};
 use battlesnake::tree::generate_most_visited_path_with_alternatives_html_tree;
 use battlesnake::visualizer::{json_to_game_state, visualize_game_state};
 use serde_json::json;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
 struct TestCase {
     name: &'static str,
     input: serde_json::Value,
@@ -106,22 +107,19 @@ fn test_mcts_move_selection() {
 
         let mut mcts = MCTS::new(game_state.clone());
         let duration = Duration::from_millis(400); // Adjust as needed
-        let num_threads = 4; // Adjust as needed
 
-        mcts.run(duration);
+        let root = mcts.run(duration);
 
         // Find the longest path
-        let root = mcts.root.clone();
         let longest_path = find_longest_path(&root);
 
         println!("Longest path in the MCTS tree (from root to leaf):");
         for (i, node) in longest_path.iter().enumerate() {
-            let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
+            let node_ref = node.borrow();
             println!("Step {}:", i);
-            println!("{}", visualize_game_state(&node_lock.game_state));
-            // println!("Moves: {:?}", node_lock.moves);
-            println!("Visits: {}", node_lock.visits);
-            println!("Value: {:?}", node_lock.value);
+            println!("{}", visualize_game_state(&node_ref.game_state));
+            println!("Visits: {}", node_ref.visits);
+            // println!("Value: {:?}", node_ref.value);
             println!("---");
         }
 
@@ -131,8 +129,7 @@ fn test_mcts_move_selection() {
         println!("Calculated best move: {:?}", best_move);
         println!("Expected move: {:?}", case.expected_move);
 
-        let root_node = mcts.root.clone();
-        if let Err(e) = generate_most_visited_path_with_alternatives_html_tree(&root_node) {
+        if let Err(e) = generate_most_visited_path_with_alternatives_html_tree(&root) {
             eprintln!("Error generating move tree: {:?}", e);
         }
 
@@ -168,23 +165,25 @@ fn test_mcts_move_selection() {
 }
 
 // Function to find the longest path from the root to a leaf node
-fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
-    let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
-    if node_lock.children.is_empty() {
-        return vec![Arc::clone(node)];
+fn find_longest_path(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
+    let node_ref = node.borrow();
+    if node_ref.children.is_empty() {
+        return vec![Rc::clone(node)];
     }
 
     let mut max_path = Vec::new();
 
     // Iterate over the values (child nodes) of the HashMap
-    for child in node_lock.children.values() {
+    for child in node_ref.children.values() {
         let path = find_longest_path(child);
         if path.len() > max_path.len() {
             max_path = path;
         }
     }
 
-    let mut full_path = vec![Arc::clone(node)];
+    drop(node_ref); // Explicitly drop the borrow
+
+    let mut full_path = vec![Rc::clone(node)];
     full_path.extend(max_path);
     full_path
 }

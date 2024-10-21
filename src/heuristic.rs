@@ -149,7 +149,7 @@ pub fn calculate_control_percentages(game_state: &GameState) -> Vec<f32> {
     // Calculate the percentage for each snake
     counts
         .iter()
-        .map(|&count| (count as f32 / board_size as f32) * 100.0)
+        .map(|&count| (count as f32 / board_size as f32))
         .collect()
 }
 

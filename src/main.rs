@@ -1,14 +1,14 @@
-// File: src/main.rs
-
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use rand::seq::SliceRandom;
 use serde_json::json;
+use std::cell::RefCell;
 use std::env;
+use std::rc::Rc;
 
 mod battlesnake_api;
 mod game_state;
 mod heuristic;
-mod search; // Include the MCTS module
+mod search;
 mod visualizer;
 
 use crate::battlesnake_api::{BattlesnakeRequest, MoveResponse};
@@ -38,45 +38,36 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
     println!("Turn: {}", info.turn);
     println!("Game state:\n{}", visualize_game_state(&game_state));
 
-    // Create an MCTS instance
     let mut mcts = MCTS::new(game_state.clone());
 
-    // Run the MCTS for a specified duration (e.g., 400 milliseconds)
     let duration = std::time::Duration::from_millis(400);
-    let num_threads = num_cpus::get();
-    println!("Number of threads: {}", num_threads);
+    println!("Running MCTS for {} milliseconds", duration.as_millis());
 
-    mcts.run(duration);
+    let root = mcts.run(duration);
 
-    // In your move handler after running MCTS
     println!(
         "Root node game state:\n{}",
-        visualize_game_state(&mcts.root.lock().unwrap().game_state)
+        visualize_game_state(&root.borrow().game_state)
     );
-    println!("Root node visits: {}", mcts.root.lock().unwrap().visits);
+    println!("Root node visits: {}", root.borrow().visits);
 
-    if let Some((_, best_child)) = mcts
-        .root
-        .lock()
-        .unwrap()
+    if let Some((_, best_child)) = root
+        .borrow()
         .children
         .iter()
-        .max_by_key(|(_, child)| child.lock().unwrap().visits)
+        .max_by_key(|(_, child)| child.borrow().visits)
     {
-        let best_child_lock = best_child.lock().unwrap();
+        let best_child_ref = best_child.borrow();
         println!(
             "Best child game state:\n{}",
-            visualize_game_state(&best_child_lock.game_state)
+            visualize_game_state(&best_child_ref.game_state)
         );
-        println!("Best child visits: {}", best_child_lock.visits);
-        // println!("Best child moves: {:?}", best_child_lock.moves);
+        println!("Best child visits: {}", best_child_ref.visits);
     }
 
-    // Get the best move for our snake
     let our_snake_id = &info.you.id;
     if let Some(our_move) = mcts.get_best_move_for_snake(our_snake_id) {
         let chosen_move = match our_move {
-            // our board is upside down so flip up and down.
             Direction::Up => "down",
             Direction::Down => "up",
             Direction::Left => "left",
@@ -88,7 +79,6 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
             shout: Some(format!("Moving {} using MCTS", chosen_move)),
         })
     } else {
-        // No valid move found; choose a random direction
         let moves = vec!["up", "down", "left", "right"];
         let chosen_move = moves.choose(&mut rand::thread_rng()).unwrap();
 
@@ -106,7 +96,6 @@ async fn end(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Get the port from the environment variable or default to 8080
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
 
     println!("Starting server on port: {}", port);
@@ -118,7 +107,7 @@ async fn main() -> std::io::Result<()> {
             .route("/move", web::post().to(r#move))
             .route("/end", web::post().to(end))
     })
-    .bind(format!("0.0.0.0:{}", port))? // Bind to the selected port
+    .bind(format!("0.0.0.0:{}", port))?
     .run()
     .await
 }
