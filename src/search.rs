@@ -2,6 +2,7 @@ use crate::game_state::{Direction, GameState};
 use crate::heuristic;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -9,10 +10,10 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub struct Node {
     pub game_state: GameState,
-    pub value: Vec<f32>,
+    pub value: Vec<f32>,       // Average value per player
     pub total_value: Vec<f32>, // Accumulated values for each player
     pub visits: u32,
-    pub children: Vec<Arc<Mutex<Node>>>,
+    pub children: HashMap<Vec<Option<Direction>>, Arc<Mutex<Node>>>, // Map from joint moves to child nodes
     pub moves: Vec<Option<Direction>>, // Moves made to reach this node
     pub parent: Weak<Mutex<Node>>,
 }
@@ -31,7 +32,7 @@ impl MCTS {
                 value: vec![0.0; number_of_players],
                 total_value: vec![0.0; number_of_players],
                 visits: 0,
-                children: Vec::new(),
+                children: HashMap::new(),
                 moves: Vec::new(), // Root node has no moves
                 parent: Weak::new(),
             })),
@@ -87,7 +88,8 @@ impl MCTS {
                 // Optionally select a child to continue the simulation
                 let selected_child = {
                     let node = current.lock().unwrap_or_else(|e| e.into_inner());
-                    node.children.first().cloned()
+                    // Randomly pick a child to continue the simulation
+                    node.children.values().next().cloned()
                 };
                 if let Some(child) = selected_child {
                     current = child;
@@ -157,11 +159,13 @@ impl MCTS {
                 value: vec![0.0; number_of_players],
                 total_value: vec![0.0; number_of_players],
                 visits: 0,
-                children: Vec::new(),
+                children: HashMap::new(),
                 moves: moves.clone(),
                 parent: Arc::downgrade(node),
             };
-            node_lock.children.push(Arc::new(Mutex::new(new_node)));
+            node_lock
+                .children
+                .insert(moves.clone(), Arc::new(Mutex::new(new_node)));
         }
     }
 
@@ -175,7 +179,7 @@ impl MCTS {
         }
         node_lock
             .children
-            .iter()
+            .values()
             .max_by(|a, b| {
                 let a_lock = a.lock().unwrap_or_else(|e| e.into_inner());
                 let b_lock = b.lock().unwrap_or_else(|e| e.into_inner());
@@ -192,9 +196,14 @@ impl MCTS {
         if node.visits == 0 {
             return f32::INFINITY;
         }
-        let average_value = node.value.iter().sum::<f32>() / node.value.len() as f32;
-        let exploration = ((2.0 * parent_visits.ln()) / node.visits as f32).sqrt();
-        average_value + exploration_constant * exploration
+        let mut total_ucb = 0.0;
+        for i in 0..node.value.len() {
+            let x_bar = node.value[i]; // Average value per player i
+            let exploration = ((2.0 * parent_visits.ln()) / node.visits as f32).sqrt();
+            let vi = x_bar + exploration_constant * exploration;
+            total_ucb += vi;
+        }
+        total_ucb
     }
 
     fn back_propagate(node: &Arc<Mutex<Node>>) {
@@ -243,7 +252,7 @@ impl MCTS {
         if !root.children.is_empty() {
             let best_child = root
                 .children
-                .iter()
+                .values()
                 .max_by_key(|child| child.lock().unwrap_or_else(|e| e.into_inner()).visits);
 
             if let Some(child) = best_child {

@@ -176,7 +176,8 @@ fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
 
     let mut max_path = Vec::new();
 
-    for child in &node_lock.children {
+    // Iterate over the values (child nodes) of the HashMap
+    for child in node_lock.children.values() {
         let path = find_longest_path(child);
         if path.len() > max_path.len() {
             max_path = path;

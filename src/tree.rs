@@ -84,7 +84,18 @@ impl TreeNode {
             .enumerate()
             .map(|(i, snake)| {
                 let score = avg_scores.get(i).cloned().unwrap_or(0.0); // Fallback to 0.0 if index is out of bounds
-                format!("Player {}: Score: {:.2}", i + 1, score)
+                format!("Player {}: avg Score: {:.2}", i + 1, score)
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        let instant_scores = game_state
+            .snakes
+            .iter()
+            .enumerate()
+            .map(|(i, snake)| {
+                let score = value_clone.get(i).cloned().unwrap_or(0.0); // Fallback to 0.0 if index is out of bounds
+                format!("Player {}: instant Score: {:.2}", i + 1, score)
             })
             .collect::<Vec<String>>()
             .join("\n");
@@ -96,8 +107,9 @@ impl TreeNode {
             visits,    // Add visits count
             avg_score, // Add average score
             ucb,       // Add UCB value
-            if is_root { "Root Node" } else { "" },  // Optional text for root node
+            // if is_root { "Root Node" } else { "" },  // Optional text for root node
             player_scores, // Add the scores for each player
+            instant_scores,
             control_visualization // Add the visualized control layout
         );
 
@@ -183,9 +195,9 @@ fn generate_tree_data(root_node: &Arc<Mutex<Node>>) -> TreeNode {
 
 fn traverse_and_build_tree(node: &Arc<Mutex<Node>>, tree_node: &mut TreeNode) {
     // Acquire lock only to clone children
-    let children_nodes = {
+    let children_nodes: Vec<_> = {
         let node_lock = node.lock().unwrap_or_else(|e| e.into_inner());
-        node_lock.children.clone()
+        node_lock.children.values().cloned().collect()
     }; // Lock is released here
 
     // Sort children by visits descending

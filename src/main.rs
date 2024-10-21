@@ -55,13 +55,13 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
     );
     println!("Root node visits: {}", mcts.root.lock().unwrap().visits);
 
-    if let Some(best_child) = mcts
+    if let Some((_, best_child)) = mcts
         .root
         .lock()
         .unwrap()
         .children
         .iter()
-        .max_by_key(|child| child.lock().unwrap().visits)
+        .max_by_key(|(_, child)| child.lock().unwrap().visits)
     {
         let best_child_lock = best_child.lock().unwrap();
         println!(
