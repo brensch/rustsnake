@@ -293,7 +293,6 @@ fn create_test_cases() -> Vec<TestCase> {
         },
     ]
 }
-
 #[test]
 fn test_game_state_simulation() {
     let test_cases = create_test_cases();

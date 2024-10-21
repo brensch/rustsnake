@@ -1,8 +1,7 @@
+use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use serde::Serialize;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Position {
     pub index: usize,
 }
@@ -106,7 +105,7 @@ impl GameState {
     }
 
     pub fn resolve_collisions(&mut self) {
-        let mut eaten_food = Vec::new();
+        let mut eaten_food = HashSet::new();
         let mut snakes_to_kill = HashSet::new();
 
         // Check for out-of-bounds, dead snakes, and health depletion
@@ -131,8 +130,8 @@ impl GameState {
             let head = snake.head();
 
             // Food consumption
-            if let Some(food_index) = self.food.iter().position(|&f| f == head) {
-                eaten_food.push(food_index);
+            if self.food.contains(&head) {
+                eaten_food.insert(head);
                 snake.health = 100; // Reset health when food is eaten
                                     // Grow the snake
                 if let Some(&tail) = snake.body.back() {
@@ -149,13 +148,8 @@ impl GameState {
             }
         }
 
-        // **Modified section to handle duplicate food indices**
         // Remove eaten food
-        eaten_food.sort_unstable();
-        eaten_food.dedup();
-        for index in eaten_food.into_iter().rev() {
-            self.food.swap_remove(index);
-        }
+        self.food.retain(|food_pos| !eaten_food.contains(food_pos));
 
         // Build a map of head positions to snake indices
         let mut head_positions: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -167,48 +161,23 @@ impl GameState {
             head_positions.entry(head_index).or_default().push(i);
         }
 
-        // Handle head-on collisions (including passing through each other's heads)
-        for i in 0..self.snakes.len() {
-            if self.snakes[i].health == 0 {
-                continue;
-            }
-
-            let snake_i_head = self.snakes[i].head().index;
-
-            for j in (i + 1)..self.snakes.len() {
-                if self.snakes[j].health == 0 {
-                    continue;
-                }
-
-                let snake_j_head = self.snakes[j].head().index;
-
-                // Case 1: Both heads land on the same square
-                if snake_i_head == snake_j_head {
-                    self.handle_head_collision(&vec![i, j], &mut snakes_to_kill);
-                    continue;
-                }
-
-                // Case 2: Heads pass through each other's necks
-                let snake_i_neck = self.snakes[i].body.get(1).map(|p| p.index);
-                let snake_j_neck = self.snakes[j].body.get(1).map(|p| p.index);
-
-                if snake_i_neck == Some(snake_j_head) && snake_j_neck == Some(snake_i_head) {
-                    // They swapped head positions (passed through each other's necks)
-                    self.handle_head_collision(&vec![i, j], &mut snakes_to_kill);
-                }
+        // Handle head-on collisions
+        for snakes_at_position in head_positions.values() {
+            if snakes_at_position.len() > 1 {
+                self.handle_head_collision(snakes_at_position, &mut snakes_to_kill);
             }
         }
 
         // Handle collisions with bodies and self-collisions
-        let body_positions: HashMap<usize, usize> = self
-            .snakes
-            .iter()
-            .enumerate()
-            .filter(|(_, snake)| snake.health > 0)
-            .flat_map(|(i, snake)| {
-                snake.body.iter().skip(1).map(move |pos| (pos.index, i)) // Map body position to snake index
-            })
-            .collect();
+        let mut body_positions: HashMap<usize, usize> = HashMap::new();
+        for (i, snake) in self.snakes.iter().enumerate() {
+            if snake.health == 0 {
+                continue;
+            }
+            for pos in snake.body.iter().skip(1) {
+                body_positions.insert(pos.index, i);
+            }
+        }
 
         for (i, snake) in self.snakes.iter().enumerate() {
             if snake.health == 0 {
@@ -232,7 +201,7 @@ impl GameState {
             }
         }
 
-        // Mutate the snakes' health after all computations
+        // Update snakes' health after all computations
         for &i in &snakes_to_kill {
             self.snakes[i].health = 0;
         }

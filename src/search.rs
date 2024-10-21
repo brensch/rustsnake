@@ -1,17 +1,17 @@
 use crate::game_state::{Direction, GameState};
 use crate::heuristic::calculate_control_percentages;
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Mutex, Weak};
+use std::thread;
 use std::time::{Duration, Instant};
 
 pub struct Node {
     pub game_state: GameState,
     pub total_score: Vec<f32>,
     pub visits: u32,
-    pub children: HashMap<Direction, Rc<RefCell<Node>>>,
+    pub children: HashMap<Direction, Arc<Mutex<Node>>>,
     pub move_made: Option<Direction>,
-    pub parent: Option<Weak<RefCell<Node>>>,
+    pub parent: Option<Weak<Mutex<Node>>>,
     pub current_player: usize,
     pub num_snakes: usize,
     pub heuristic: Option<Vec<f32>>, // Stores the heuristic at the leaf node
@@ -19,16 +19,16 @@ pub struct Node {
 }
 
 pub struct MCTS {
-    pub root: Rc<RefCell<Node>>,
+    pub root: Arc<Mutex<Node>>,
     exploration_constant: f32,
 }
 
 impl MCTS {
     pub fn new(initial_state: GameState) -> Self {
         let number_of_snakes = initial_state.snakes.len();
-        let is_terminal = Self::is_terminal(&initial_state);
+        let is_terminal = MCTSWorker::is_terminal(&initial_state);
         MCTS {
-            root: Rc::new(RefCell::new(Node {
+            root: Arc::new(Mutex::new(Node {
                 game_state: initial_state,
                 total_score: vec![0.0; number_of_snakes],
                 visits: 0,
@@ -44,27 +44,61 @@ impl MCTS {
         }
     }
 
-    pub fn run(&mut self, duration: Duration) -> Rc<RefCell<Node>> {
+    pub fn run(&mut self, duration: Duration, num_threads: usize) -> Arc<Mutex<Node>> {
         let start_time = Instant::now();
-        let root = Rc::clone(&self.root);
+        let root = Arc::clone(&self.root);
+        let exploration_constant = self.exploration_constant;
 
-        while Instant::now().duration_since(start_time) < duration {
-            self.tree_policy(&root);
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let root_clone = Arc::clone(&root);
+
+                thread::spawn(move || {
+                    let worker = MCTSWorker {
+                        exploration_constant,
+                    };
+                    while Instant::now().duration_since(start_time) < duration {
+                        worker.tree_policy(&root_clone);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
         }
 
         root
     }
 
-    fn tree_policy(&self, node: &Rc<RefCell<Node>>) {
-        let mut current = Rc::clone(node);
+    pub fn get_best_move_for_snake(&self, our_snake_id: &str) -> Option<Direction> {
+        let root = self.root.lock().unwrap();
+
+        if !root.children.is_empty() {
+            let best_child = root
+                .children
+                .iter()
+                .max_by_key(|(_, child)| child.lock().unwrap().visits)
+                .map(|(direction, _)| *direction);
+
+            return best_child;
+        }
+
+        None
+    }
+}
+
+struct MCTSWorker {
+    exploration_constant: f32,
+}
+
+impl MCTSWorker {
+    fn tree_policy(&self, node: &Arc<Mutex<Node>>) {
+        let mut current = Arc::clone(node);
         loop {
             let expand_result = {
-                let node_ref = current.borrow();
-                if node_ref.children.is_empty() {
-                    true
-                } else {
-                    false
-                }
+                let node_ref = current.lock().unwrap();
+                node_ref.children.is_empty()
             };
 
             if expand_result {
@@ -72,7 +106,7 @@ impl MCTS {
                 break;
             } else {
                 let node_is_terminal = {
-                    let node_ref = current.borrow();
+                    let node_ref = current.lock().unwrap();
                     node_ref.is_terminal
                 };
 
@@ -90,14 +124,12 @@ impl MCTS {
         self.back_propagate(&current);
     }
 
-    fn expand(&self, node: &Rc<RefCell<Node>>) {
-        let node_ref = node.borrow();
+    fn expand(&self, node: &Arc<Mutex<Node>>) {
+        let mut node_ref = node.lock().unwrap();
         if node_ref.is_terminal {
             return; // Do not expand terminal nodes
         }
-        drop(node_ref);
 
-        let mut node_ref = node.borrow_mut();
         let current_player = node_ref.current_player;
         let num_snakes = node_ref.num_snakes;
 
@@ -132,7 +164,7 @@ impl MCTS {
                     visits: 0,
                     children: HashMap::new(),
                     move_made: move_option,
-                    parent: Some(Rc::downgrade(node)),
+                    parent: Some(Arc::downgrade(node)),
                     current_player: next_player,
                     num_snakes,
                     heuristic: None,
@@ -143,7 +175,7 @@ impl MCTS {
                 let direction_key = move_option.unwrap_or(Direction::Up);
                 node_ref
                     .children
-                    .insert(direction_key, Rc::new(RefCell::new(new_node)));
+                    .insert(direction_key, Arc::new(Mutex::new(new_node)));
             }
         } else {
             // If the current snake is dead, skip its turn
@@ -164,7 +196,7 @@ impl MCTS {
                 visits: 0,
                 children: HashMap::new(),
                 move_made: None,
-                parent: Some(Rc::downgrade(node)),
+                parent: Some(Arc::downgrade(node)),
                 current_player: next_player,
                 num_snakes,
                 heuristic: None,
@@ -174,12 +206,12 @@ impl MCTS {
             // Use a dummy direction as key
             node_ref
                 .children
-                .insert(Direction::Up, Rc::new(RefCell::new(new_node)));
+                .insert(Direction::Up, Arc::new(Mutex::new(new_node)));
         }
     }
 
-    fn select_best_move(&self, node: &Rc<RefCell<Node>>) -> Option<Rc<RefCell<Node>>> {
-        let node_ref = node.borrow();
+    fn select_best_move(&self, node: &Arc<Mutex<Node>>) -> Option<Arc<Mutex<Node>>> {
+        let node_ref = node.lock().unwrap();
         let current_player = node_ref.current_player;
 
         if node_ref.children.is_empty() {
@@ -190,8 +222,8 @@ impl MCTS {
             .children
             .values()
             .max_by(|a, b| {
-                let a_ref = a.borrow();
-                let b_ref = b.borrow();
+                let a_ref = a.lock().unwrap();
+                let b_ref = b.lock().unwrap();
                 let a_ucb = self.ucb_value(&a_ref, node_ref.visits, current_player);
                 let b_ucb = self.ucb_value(&b_ref, node_ref.visits, current_player);
                 a_ucb
@@ -213,12 +245,9 @@ impl MCTS {
         exploitation + exploration
     }
 
-    fn back_propagate(&self, node: &Rc<RefCell<Node>>) {
-        let mut current = Rc::clone(node);
-
-        // Determine the scores
+    fn back_propagate(&self, node: &Arc<Mutex<Node>>) {
         let heuristic = {
-            let node_ref = current.borrow();
+            let node_ref = node.lock().unwrap();
             if node_ref.is_terminal {
                 // Assign scores based on game outcome
                 let mut scores = vec![0.0; node_ref.num_snakes];
@@ -233,9 +262,6 @@ impl MCTS {
                 if alive_snakes.len() == 1 {
                     let (winner_index, _) = alive_snakes[0];
                     scores[winner_index] = 1.0;
-                } else {
-                    // All snakes are dead; assign neutral scores or penalize as needed
-                    // For this example, we'll leave scores at 0.0
                 }
                 scores
             } else {
@@ -246,12 +272,13 @@ impl MCTS {
 
         // At the leaf node, store the heuristic
         {
-            let mut node_ref = current.borrow_mut();
+            let mut node_ref = node.lock().unwrap();
             node_ref.heuristic = Some(heuristic.clone());
         }
 
+        let mut current = Arc::clone(node);
         loop {
-            let mut node_ref = current.borrow_mut();
+            let mut node_ref = current.lock().unwrap();
             node_ref.visits += 1;
 
             // Update total_score for each snake
@@ -274,21 +301,5 @@ impl MCTS {
     fn is_terminal(game_state: &GameState) -> bool {
         let alive_snakes = game_state.snakes.iter().filter(|s| s.health > 0).count();
         alive_snakes == 0 || alive_snakes == 1 // All snakes dead or only one snake left
-    }
-
-    pub fn get_best_move_for_snake(&self, our_snake_id: &str) -> Option<Direction> {
-        let root = self.root.borrow();
-
-        if !root.children.is_empty() {
-            let best_child = root
-                .children
-                .iter()
-                .max_by_key(|(_, child)| child.borrow().visits)
-                .map(|(direction, _)| *direction);
-
-            return best_child;
-        }
-
-        None
     }
 }

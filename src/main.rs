@@ -1,9 +1,9 @@
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use rand::seq::SliceRandom;
 use serde_json::json;
-use std::cell::RefCell;
 use std::env;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 mod battlesnake_api;
 mod game_state;
@@ -40,24 +40,25 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
 
     let mut mcts = MCTS::new(game_state.clone());
 
-    let duration = std::time::Duration::from_millis(400);
+    let duration = Duration::from_millis(400);
     println!("Running MCTS for {} milliseconds", duration.as_millis());
 
-    let root = mcts.run(duration);
+    let root = mcts.run(duration, 12);
 
     println!(
         "Root node game state:\n{}",
-        visualize_game_state(&root.borrow().game_state)
+        visualize_game_state(&root.lock().unwrap().game_state)
     );
-    println!("Root node visits: {}", root.borrow().visits);
+    println!("Root node visits: {}", root.lock().unwrap().visits);
 
     if let Some((_, best_child)) = root
-        .borrow()
+        .lock()
+        .unwrap()
         .children
         .iter()
-        .max_by_key(|(_, child)| child.borrow().visits)
+        .max_by_key(|(_, child)| child.lock().unwrap().visits)
     {
-        let best_child_ref = best_child.borrow();
+        let best_child_ref = best_child.lock().unwrap();
         println!(
             "Best child game state:\n{}",
             visualize_game_state(&best_child_ref.game_state)
@@ -68,8 +69,8 @@ async fn r#move(info: web::Json<BattlesnakeRequest>) -> impl Responder {
     let our_snake_id = &info.you.id;
     if let Some(our_move) = mcts.get_best_move_for_snake(our_snake_id) {
         let chosen_move = match our_move {
-            Direction::Up => "down",
-            Direction::Down => "up",
+            Direction::Up => "up",
+            Direction::Down => "down",
             Direction::Left => "left",
             Direction::Right => "right",
         };

@@ -131,14 +131,14 @@ fn test_mcts_move_selection() {
         let mut mcts = MCTS::new(game_state.clone());
         let duration = Duration::from_millis(400); // Adjust as needed
 
-        let root = mcts.run(duration);
+        let root = mcts.run(duration, 12);
 
         // Find the longest path
         let longest_path = find_longest_path(&root);
 
         println!("Longest path in the MCTS tree (from root to leaf):");
         for (i, node) in longest_path.iter().enumerate() {
-            let node_ref = node.borrow();
+            let node_ref = node.lock().unwrap();
             println!("Step {}:", i);
             println!("{}", visualize_game_state(&node_ref.game_state));
             println!("Visits: {}", node_ref.visits);
@@ -188,10 +188,10 @@ fn test_mcts_move_selection() {
 }
 
 // Function to find the longest path from the root to a leaf node
-fn find_longest_path(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
-    let node_ref = node.borrow();
+fn find_longest_path(node: &Arc<Mutex<Node>>) -> Vec<Arc<Mutex<Node>>> {
+    let node_ref = node.lock().unwrap();
     if node_ref.children.is_empty() {
-        return vec![Rc::clone(node)];
+        return vec![Arc::clone(node)];
     }
 
     let mut max_path = Vec::new();
@@ -204,9 +204,9 @@ fn find_longest_path(node: &Rc<RefCell<Node>>) -> Vec<Rc<RefCell<Node>>> {
         }
     }
 
-    drop(node_ref); // Explicitly drop the borrow
+    drop(node_ref); // Explicitly drop the lock
 
-    let mut full_path = vec![Rc::clone(node)];
+    let mut full_path = vec![Arc::clone(node)];
     full_path.extend(max_path);
     full_path
 }

@@ -4,12 +4,11 @@ use crate::search::Node;
 use crate::visualizer::{visualize_control, visualize_game_state};
 use chrono::Utc;
 use serde::Serialize;
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::rc::{Rc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use uuid::Uuid;
 
 #[derive(Serialize)]
@@ -41,14 +40,14 @@ pub struct TreeNode {
 }
 
 impl TreeNode {
-    fn from_node(node: &Rc<RefCell<Node>>, exploration_constant: f32, is_root: bool) -> Self {
-        let node_ref = node.borrow();
+    fn from_node(node: &Arc<Mutex<Node>>, exploration_constant: f32, is_root: bool) -> Self {
+        let node_ref = node.lock().unwrap();
         let visits = node_ref.visits;
 
         let total_score_clone = node_ref.total_score.clone();
         let heuristics_clone = node_ref.heuristic.clone();
         let parent_weak = node_ref.parent.clone();
-        let id = format!("Node_{:p}", node.as_ptr());
+        let id = format!("Node_{:p}", Arc::as_ptr(node));
         let body = visualize_game_state(&node_ref.game_state);
         let game_state = node_ref.game_state.clone();
         let terminal = node_ref.is_terminal;
@@ -132,7 +131,7 @@ fn game_state_to_board(game_state: &GameState) -> Board {
 }
 
 pub fn generate_most_visited_path_with_alternatives_html_tree(
-    root_node: &Rc<RefCell<Node>>,
+    root_node: &Arc<Mutex<Node>>,
 ) -> Result<(), std::io::Error> {
     println!("starting");
     let tree_node = generate_tree_data(root_node);
@@ -160,27 +159,28 @@ pub fn generate_most_visited_path_with_alternatives_html_tree(
     Ok(())
 }
 
-fn generate_tree_data(root_node: &Rc<RefCell<Node>>) -> TreeNode {
+fn generate_tree_data(root_node: &Arc<Mutex<Node>>) -> TreeNode {
     println!("getting lock");
 
-    let mut root_tree_node = TreeNode::from_node(root_node, 1.414, true);
+    let root_tree_node = TreeNode::from_node(root_node, 1.414, true);
     println!("got lock");
 
+    let mut root_tree_node = root_tree_node;
     traverse_and_build_tree(root_node, &mut root_tree_node);
 
     root_tree_node
 }
 
-fn traverse_and_build_tree(node: &Rc<RefCell<Node>>, tree_node: &mut TreeNode) {
+fn traverse_and_build_tree(node: &Arc<Mutex<Node>>, tree_node: &mut TreeNode) {
     let children_nodes: Vec<_> = {
-        let node_ref = node.borrow();
+        let node_ref = node.lock().unwrap();
         node_ref.children.values().cloned().collect()
     };
 
     let mut sorted_children = children_nodes;
     sorted_children.sort_by(|a, b| {
-        let a_visits = a.borrow().visits;
-        let b_visits = b.borrow().visits;
+        let a_visits = a.lock().unwrap().visits;
+        let b_visits = b.lock().unwrap().visits;
         b_visits.cmp(&a_visits)
     });
 
@@ -198,7 +198,7 @@ fn traverse_and_build_tree(node: &Rc<RefCell<Node>>, tree_node: &mut TreeNode) {
 
 fn calculate_ucb_value(
     node: &Node,
-    parent: Option<&Weak<RefCell<Node>>>,
+    parent: Option<&Weak<Mutex<Node>>>,
     exploration_constant: f32,
 ) -> f32 {
     let node_visits = node.visits as f32;
@@ -208,7 +208,7 @@ fn calculate_ucb_value(
 
     let parent_visits = parent
         .and_then(|weak| weak.upgrade())
-        .map(|rc| rc.borrow().visits as f32)
+        .map(|rc| rc.lock().unwrap().visits as f32)
         .unwrap_or(1.0);
 
     let exploitation = node.total_score[node.current_player] / node_visits;
